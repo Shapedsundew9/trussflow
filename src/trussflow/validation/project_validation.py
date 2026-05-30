@@ -13,7 +13,8 @@ from trussflow.validation.schema_validation import (
     validate_requirement_file,
 )
 
-RUID_RE = re.compile(r"^([sm])([0-9A-Z]+)([0-3])([cpt])$")
+RUID_RE = re.compile(r"^([0-9A-Z]+)([0-3])([cpt])$")
+REQUIREMENT_MAY_RE = re.compile(r"\bmay\b", re.IGNORECASE)
 REF_KEYS = ("depends_on", "related_to", "supersedes")
 
 
@@ -22,7 +23,6 @@ class ParsedRuid:
     """RUID decomposition helper."""
 
     raw: str
-    rt: str
     rn: str
     rl: int
     rs: str
@@ -32,8 +32,8 @@ class ParsedRuid:
         match = RUID_RE.match(value)
         if not match:
             return None
-        rt, rn, rl, rs = match.groups()
-        return cls(raw=value, rt=rt, rn=rn, rl=int(rl), rs=rs)
+        rn, rl, rs = match.groups()
+        return cls(raw=value, rn=rn, rl=int(rl), rs=rs)
 
 
 @dataclass(slots=True)
@@ -42,6 +42,7 @@ class RequirementRecord:
 
     parsed_ruid: ParsedRuid
     timestamp: datetime
+    text: str
     refs: dict[str, list[str]]
     file_path: Path
     entry_index: int
@@ -61,7 +62,7 @@ def _collect_records(
     issues: list[ValidationIssue] = []
     records: list[RequirementRecord] = []
 
-    for file_path in sorted(requirements_dir.rglob("*.yaml")):
+    for file_path in sorted(requirements_dir.rglob("*.json")):
         entries, file_issues = validate_requirement_file(file_path, schema)
         issues.extend(file_issues)
         if file_issues:
@@ -101,6 +102,7 @@ def _collect_records(
                 RequirementRecord(
                     parsed_ruid=parsed,
                     timestamp=timestamp,
+                    text=entry["text"],
                     refs=normalized_refs,
                     file_path=file_path,
                     entry_index=idx,
@@ -252,6 +254,29 @@ def _validate_cross_references(
     return issues
 
 
+def _validate_requirement_language(
+    records: list[RequirementRecord],
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+
+    for record in records:
+        if REQUIREMENT_MAY_RE.search(record.text):
+            issues.append(
+                ValidationIssue(
+                    rule="text.normative_may",
+                    message=(
+                        f"Requirement {record.parsed_ruid.raw} uses 'may' in requirement text; "
+                        "use 'shall' for requirements per NASA guidance."
+                    ),
+                    file_path=str(record.file_path),
+                    entry_index=record.entry_index,
+                    ruid=record.parsed_ruid.raw,
+                )
+            )
+
+    return issues
+
+
 def _validate_storage_model(
     requirements_dir: Path, records: list[RequirementRecord]
 ) -> list[ValidationIssue]:
@@ -268,31 +293,6 @@ def _validate_storage_model(
             )
 
     by_rn = {record.parsed_ruid.rn: record for record in records}
-    for record in records:
-        rn = record.parsed_ruid.rn
-        has_children = any(
-            other.parsed_ruid.rn.startswith(rn)
-            and len(other.parsed_ruid.rn) == len(rn) + 1
-            for other in records
-        )
-        if not has_children:
-            continue
-
-        expected_child_list = requirements_dir / rn / f"{record.parsed_ruid.raw}.yaml"
-        if not expected_child_list.exists():
-            issues.append(
-                ValidationIssue(
-                    rule="storage.child_list",
-                    message=(
-                        f"Parent requirement {record.parsed_ruid.raw} has children but missing "
-                        f"child-list file at {expected_child_list}."
-                    ),
-                    file_path=str(record.file_path),
-                    entry_index=record.entry_index,
-                    ruid=record.parsed_ruid.raw,
-                )
-            )
-
     for folder in sorted(path for path in requirements_dir.rglob("*") if path.is_dir()):
         if folder == requirements_dir:
             continue
@@ -359,7 +359,7 @@ def validate_requirements_tree(
         return [
             ValidationIssue(
                 rule="requirements.empty",
-                message="No requirement YAML files were found.",
+                message="No requirement JSON files were found.",
                 file_path=str(requirements_dir),
             )
         ]
@@ -367,5 +367,6 @@ def validate_requirements_tree(
     issues.extend(_validate_rn_uniqueness(records))
     issues.extend(_validate_hierarchy_and_state(records))
     issues.extend(_validate_cross_references(records))
+    issues.extend(_validate_requirement_language(records))
     issues.extend(_validate_storage_model(requirements_dir, records))
     return issues

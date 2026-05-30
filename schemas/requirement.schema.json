@@ -7,7 +7,7 @@
     "properties": {
         "ruid": {
             "type": "string",
-            "pattern": "^[sm][0-9A-Z]+[0-3][cpt]$"
+            "pattern": "^[0-9A-Z]+[0-3][cpt]$"
         },
         "timestamp": {
             "type": "string",
@@ -36,7 +36,7 @@
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "pattern": "^[sm][0-9A-Z]+[0-3][cpt]$"
+                        "pattern": "^[0-9A-Z]+[0-3][cpt]$"
                     },
                     "default": []
                 },
@@ -44,7 +44,7 @@
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "pattern": "^[sm][0-9A-Z]+[0-3][cpt]$"
+                        "pattern": "^[0-9A-Z]+[0-3][cpt]$"
                     },
                     "default": []
                 },
@@ -52,7 +52,7 @@
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "pattern": "^[sm][0-9A-Z]+[0-3][cpt]$"
+                        "pattern": "^[0-9A-Z]+[0-3][cpt]$"
                     },
                     "default": []
                 }

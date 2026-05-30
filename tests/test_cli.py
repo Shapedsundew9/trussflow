@@ -16,32 +16,44 @@ def _write(path: Path, content: str) -> None:
 def _create_valid_tree(base: Path) -> None:
     requirements = base / "requirements"
     _write(
-        requirements / "root.yaml",
-        """
-- ruid: sA0c
-  timestamp: 2026-05-30T12:00:00Z
-  text: The product SHALL define a valid root requirement.
-  rationale: This is the top-level requirement.
-  scope: in
-  refs:
-    depends_on: []
-    related_to: []
-    supersedes: []
-""".strip() + "\n",
+        requirements / "root.json",
+        json.dumps(
+            {
+                "ruid": "A0c",
+                "timestamp": "2026-05-30T12:00:00Z",
+                "text": "The product shall define a valid root requirement.",
+                "rationale": "This is the top-level requirement.",
+                "scope": "in",
+                "refs": {
+                    "depends_on": [],
+                    "related_to": [],
+                    "supersedes": [],
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
     )
     _write(
-        requirements / "A" / "sA0c.yaml",
-        """
-- ruid: sAB1c
-  timestamp: 2026-05-30T12:10:00Z
-  text: The system SHALL define one valid child requirement.
-  rationale: This establishes hierarchy for validation.
-  scope: in
-  refs:
-    depends_on: []
-    related_to: []
-    supersedes: []
-""".strip() + "\n",
+        requirements / "A" / "AB1c.json",
+        json.dumps(
+            {
+                "ruid": "AB1c",
+                "timestamp": "2026-05-30T12:10:00Z",
+                "text": "The system shall define one valid child requirement.",
+                "rationale": "This establishes hierarchy for validation.",
+                "scope": "in",
+                "refs": {
+                    "depends_on": [],
+                    "related_to": [],
+                    "supersedes": [],
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
     )
 
 

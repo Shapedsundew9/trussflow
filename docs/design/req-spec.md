@@ -4,7 +4,7 @@ The lineage framework starts from requirements that are independent of technolog
 
 ## Goals
 
-Requirements SHALL:
+Requirements shall:
 
 * Define in-scope and out-of-scope behavior explicitly.
 * Use a nested hierarchy.
@@ -19,21 +19,16 @@ Requirements SHALL:
 
 RUID (Requirement Unique Identifier) format:
 
-* Regex: \[sm][0-9A-Z]+\[0-3][cpt]
-* Structure: RT + RN + RL + RS
-
-### RT (Requirement Type)
-
-* s: SHALL (mandatory)
-* m: MAY (optional)
+* Regex: [0-9A-Z]+[0-3][cpt]
+* Structure: RN + RL + RS
 
 ### RN (Requirement Number)
 
 * Regex: [0-9A-Z]+
 * RN is globally and eternally unique across the project.
-* No two requirements may share the same RN, regardless of RT or RS.
+* No two requirements shall share the same RN, regardless of RS.
 * RN is hierarchical.
-* Each child RN MUST equal parent RN plus exactly one additional character.
+* Each child RN shall equal parent RN plus exactly one additional character.
 
 ### RL (Requirement Level)
 
@@ -47,10 +42,10 @@ RL encodes decomposition stage and is not the same as hierarchy depth.
 Rules:
 
 * RL is mandatory for every requirement as part of RUID.
-* Child RL MUST be greater than or equal to parent RL.
-* A child MAY keep the same RL as its parent.
+* Child RL shall be greater than or equal to parent RL.
+* A child may keep the same RL as its parent.
 * RL transitions are not required at each hierarchy level.
-* A requirement with RL 3 MUST have at least one ancestor with RL 0, 1, or 2.
+* A requirement with RL 3 shall have at least one ancestor with RL 0, 1, or 2.
 
 ### RS (Requirement State)
 
@@ -61,54 +56,37 @@ Rules:
 ## Immutability Rules
 
 * A RUID is immutable after publication.
-* Requirement edits that change meaning, RT, RS, scope, or references MUST create a new requirement with a new RN.
-* The new requirement MUST reference the replaced requirement via refs.supersedes.
+* Requirement edits that change meaning, RS, scope, or references shall create a new requirement with a new RN.
+* The new requirement shall reference the replaced requirement via refs.supersedes.
 
 ## State and Hierarchy Constraints
 
-* If parent RS is p, all descendants MUST have RS p.
-* If RS is t, the requirement MUST be a leaf (no children).
-* If parent RS is c, children MAY be c, p, or t.
+* If parent RS is p, all descendants shall have RS p.
+* If RS is t, the requirement shall be a leaf (no children).
+* If parent RS is c, children may be c, p, or t.
 
 ## Storage Model
 
 Requirements are stored under requirements/ using RN-based folders.
 
-* Root file: requirements/root.yaml
+* Root file: requirements/root.json
 * Root folder: requirements/\<root-rn>/
-* A parent requirement with children has a child-list file:
-  requirements/\<parent-rn>/\<parent-ruid>.yaml
+* Each requirement is stored in exactly one JSON file.
+* A descendant requirement is stored at requirements/\<parent-rn>/\<child-ruid>.json.
 * A requirement gets its own folder only if it has children.
 * Empty folders are forbidden.
 
-## YAML Format
+## JSON Format
 
-All files MUST be ASCII YAML.
+All files shall be ASCII JSON.
 
-### YAML Scalar Typing Rules
+### Requirement File Schema
 
-Writers SHALL ensure that fields defined as strings are parsed by YAML as string scalars, not as implicit booleans, nulls, numbers, or date/time values.
+Each requirement file shall contain one JSON object with this schema:
 
-Rules:
-
-* The validator rejects implicit scalar coercions for string fields using error code yaml.scalar_coercion.
-* Authors SHOULD quote ambiguous scalar literals when used in string fields.
-* This applies to ruid, timestamp, text, rationale, scope, and refs.* list entries.
-
-Examples of ambiguous unquoted literals that SHALL be quoted when intended as strings:
-
-* true, false, yes, no, on, off
-* null, ~
-* 42, 3.14, 1e6
-* 2026-05-30, 2026-05-30T12:00:00Z
-
-### Child-list file schema
-
-Each item in a child-list file MUST follow this schema:
-
-* ruid: string, required, regex \[sm][0-9A-Z]+\[0-3][cpt]
+* ruid: string, required, regex [0-9A-Z]+[0-3][cpt]
 * timestamp: string, required, creation timestamp in UTC, regex [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z
-* text: string, required, concise normative statement
+* text: string, required, concise requirement statement using shall
 * rationale: string, required, concise justification for the requirement
 * scope: enum, required, one of [in, out]
 * refs: object, required
@@ -118,39 +96,33 @@ Each item in a child-list file MUST follow this schema:
 
 Rules:
 
-* Every referenced RUID MUST exist.
-* refs.supersedes MUST only point to older requirements.
-* timestamp MUST be an ISO 8601 UTC instant using the form YYYY-MM-DDTHH:MM:SSZ.
-* Validator JSON output MUST include a stable error_code field per violation for machine processing.
+* Every referenced RUID shall exist.
+* refs.supersedes shall only point to older requirements.
+* timestamp shall be an ISO 8601 UTC instant using the form YYYY-MM-DDTHH:MM:SSZ.
+* Validator JSON output shall include a stable error_code field per violation for machine processing.
 
 ## Example
 
-Example file requirements/A/sA0c.yaml:
+Example file requirements/A/AB1c.json:
 
-```yaml
-- ruid: sAB1c
-  timestamp: 2026-05-30T12:00:00Z
-  text: The system SHALL validate incoming requirement files before merge.
-  rationale: Early validation prevents invalid requirements from entering the baseline.
-  scope: in
-  refs:
-    depends_on: [sAA1c]
-    related_to: [mXZ2p]
-    supersedes: []
-- ruid: sABD2t
-  timestamp: 2026-05-30T12:15:00Z
-  text: The system SHALL define conflict resolution policy for duplicate RN submissions.
-  rationale: Duplicate RN handling must be specified before collaborative authoring scales.
-  scope: out
-  refs:
-    depends_on: []
-    related_to: [sAB1c]
-    supersedes: []
+```json
+{
+  "ruid": "AB1c",
+  "timestamp": "2026-05-30T12:00:00Z",
+  "text": "The system shall validate incoming requirement files before merge.",
+  "rationale": "Early validation prevents invalid requirements from entering the baseline.",
+  "scope": "in",
+  "refs": {
+    "depends_on": ["AA1c"],
+    "related_to": ["XZ2p"],
+    "supersedes": []
+  }
+}
 ```
 
 ## Controlled Terminology
 
-Only the terms in this glossary SHALL be used with normative meaning.
+Only the terms in this glossary shall be used with normative meaning.
 
 * Requirement: One atomic normative statement with one immutable RUID.
 * Parent: A requirement whose RN is a strict prefix of child RN.
