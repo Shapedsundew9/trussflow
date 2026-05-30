@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trussflow"
+version = "0.1.0"
+description = "Requirements definition tooling for reproducible software projects."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+trussflow = "trussflow.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["trussflow*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
