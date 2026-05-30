@@ -19,7 +19,7 @@ Requirements shall:
 
 RUID (Requirement Unique Identifier) format:
 
-* Regex: [0-9A-Z]+[0-3][cpt]
+* Regex: `[0-9A-Z]+[0-3][cpt]`
 * Structure: RN + RL + RS
 
 ### RN (Requirement Number)
@@ -70,9 +70,9 @@ Rules:
 Requirements are stored under requirements/ using RN-based folders.
 
 * Root file: requirements/root.json
-* Root folder: requirements/\<root-rn>/
+* Root folder: `requirements/<root-rn>/`
 * Each requirement is stored in exactly one JSON file.
-* A descendant requirement is stored at requirements/\<parent-rn>/\<child-ruid>.json.
+* A descendant requirement is stored at `requirements/<parent-rn>/<child-ruid>.json`
 * A requirement gets its own folder only if it has children.
 * Empty folders are forbidden.
 
@@ -84,8 +84,8 @@ All files shall be ASCII JSON.
 
 Each requirement file shall contain one JSON object with this schema:
 
-* ruid: string, required, regex [0-9A-Z]+[0-3][cpt]
-* timestamp: string, required, creation timestamp in UTC, regex [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z
+* ruid: string, required, regex `[0-9A-Z]+[0-3][cpt]`
+* timestamp: string, required, creation timestamp in UTC, regex `[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z`
 * text: string, required, concise requirement statement using shall
 * rationale: string, required, concise justification for the requirement
 * scope: enum, required, one of [in, out]
