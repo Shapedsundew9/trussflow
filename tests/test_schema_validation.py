@@ -6,7 +6,11 @@ import json
 from pathlib import Path
 
 from trussflow.validation.schema_validation import (
+    load_amendment_schema,
+    load_errata_schema,
     load_schema,
+    validate_amendment_file,
+    validate_errata_file,
     validate_requirement_file,
 )
 
@@ -130,3 +134,139 @@ def test_schema_validation_rejects_wrong_json_scalar_types(tmp_path: Path) -> No
     assert any(issue.rule == "schema" for issue in issues)
     assert any("text" in issue.message for issue in issues)
     assert any("scope" in issue.message for issue in issues)
+
+
+def test_errata_schema_validation_accepts_valid_entry(tmp_path: Path) -> None:
+    errata_file = tmp_path / "errata" / "batch-001.json"
+    _write(
+        errata_file,
+        json.dumps(
+            [
+                {
+                    "errata_id": "ERR-A-20260530T120000Z",
+                    "discovered_timestamp": "2026-05-30T12:00:00Z",
+                    "analyst_id": "agent.requirement-analyst",
+                    "error_type": "gap",
+                    "description": "A child requirement is missing for published scope handling.",
+                    "affected_ruids": ["A0c"],
+                    "violated_rule": "text.verifiability",
+                    "root_cause": "The statement is too broad for verification.",
+                    "solutions": [
+                        {
+                            "solution_id": "primary",
+                            "action_type": "create_requirement",
+                            "description": "Create a child with measurable acceptance criteria.",
+                        }
+                    ],
+                }
+            ],
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+
+    entries, issues = validate_errata_file(errata_file, load_errata_schema())
+
+    assert len(entries) == 1
+    assert issues == []
+
+
+def test_errata_schema_validation_rejects_non_array_document(tmp_path: Path) -> None:
+    errata_file = tmp_path / "errata" / "batch-001.json"
+    _write(
+        errata_file,
+        json.dumps(
+            {
+                "errata_id": "ERR-A-20260530T120000Z",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+
+    _, issues = validate_errata_file(errata_file, load_errata_schema())
+
+    assert issues
+    assert any(issue.rule == "file.shape" for issue in issues)
+
+
+def test_amendment_schema_validation_accepts_valid_entry(tmp_path: Path) -> None:
+    amendment_file = tmp_path / "amendments" / "batch-001.json"
+    _write(
+        amendment_file,
+        json.dumps(
+            [
+                {
+                    "amendment_id": "AMD-A-20260530T121500Z",
+                    "errata_id": "ERR-A-20260530T120000Z",
+                    "selected_solution_id": "primary",
+                    "approved_by": "ccb.user",
+                    "approval_timestamp": "2026-05-30T12:15:00Z",
+                    "rationale": "Primary solution keeps hierarchy stable.",
+                    "changes": [
+                        {
+                            "change_id": "CHG-000001",
+                            "action": "create",
+                            "parent_ruid": "A0c",
+                            "new_ruid": "AB1p",
+                            "new_timestamp": "2026-05-30T12:16:00Z",
+                            "new_state": {
+                                "text": "The system shall define one measurable child requirement.",
+                                "rationale": "Ensures verifiable decomposition.",
+                                "scope": "in",
+                                "refs": {
+                                    "depends_on": [],
+                                    "related_to": [],
+                                    "supersedes": [],
+                                },
+                            },
+                        }
+                    ],
+                }
+            ],
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+
+    entries, issues = validate_amendment_file(amendment_file, load_amendment_schema())
+
+    assert len(entries) == 1
+    assert issues == []
+
+
+def test_amendment_schema_validation_rejects_missing_action_operands(
+    tmp_path: Path,
+) -> None:
+    amendment_file = tmp_path / "amendments" / "batch-001.json"
+    _write(
+        amendment_file,
+        json.dumps(
+            [
+                {
+                    "amendment_id": "AMD-A-20260530T121500Z",
+                    "errata_id": "ERR-A-20260530T120000Z",
+                    "selected_solution_id": "primary",
+                    "approved_by": "ccb.user",
+                    "approval_timestamp": "2026-05-30T12:15:00Z",
+                    "changes": [
+                        {
+                            "change_id": "CHG-000001",
+                            "action": "create",
+                        }
+                    ],
+                }
+            ],
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+
+    _, issues = validate_amendment_file(amendment_file, load_amendment_schema())
+
+    assert issues
+    assert any(issue.rule == "schema" for issue in issues)

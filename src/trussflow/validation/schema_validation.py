@@ -40,6 +40,18 @@ def default_schema_path() -> Path:
     return Path(__file__).resolve().parents[3] / "schemas" / "requirement.schema.json"
 
 
+def default_errata_schema_path() -> Path:
+    """Return the repository-local path to errata schema."""
+
+    return Path(__file__).resolve().parents[3] / "schemas" / "errata.schema.json"
+
+
+def default_amendment_schema_path() -> Path:
+    """Return the repository-local path to amendment schema."""
+
+    return Path(__file__).resolve().parents[3] / "schemas" / "amendment.schema.json"
+
+
 def load_schema(schema_path: Path | None = None) -> dict[str, Any]:
     """Load and parse the JSON Schema document."""
 
@@ -131,6 +143,29 @@ def validate_entries_against_schema(
     return issues
 
 
+def validate_document_against_schema(
+    document: Any,
+    file_path: Path,
+    schema: dict[str, Any],
+) -> list[ValidationIssue]:
+    """Validate one JSON document against a JSON Schema."""
+
+    validator = Draft202012Validator(schema)
+    issues: list[ValidationIssue] = []
+    errors = sorted(validator.iter_errors(document), key=lambda err: list(err.path))
+    for err in errors:
+        path = ".".join(str(part) for part in err.path)
+        prefix = f"{path}: " if path else ""
+        issues.append(
+            ValidationIssue(
+                rule="schema",
+                message=f"{prefix}{err.message}",
+                file_path=str(file_path),
+            )
+        )
+    return issues
+
+
 def validate_requirement_file(
     file_path: Path,
     schema: dict[str, Any],
@@ -142,4 +177,107 @@ def validate_requirement_file(
         return entries, issues
 
     schema_issues = validate_entries_against_schema(entries, file_path, schema)
+    return entries, schema_issues
+
+
+def load_array_of_objects_file(
+    file_path: Path,
+    *,
+    artifact_name: str,
+) -> tuple[list[dict[str, Any]], list[ValidationIssue]]:
+    """Load one ASCII JSON file containing an array of JSON objects."""
+
+    try:
+        raw_bytes = file_path.read_bytes()
+    except OSError as exc:
+        return [], [
+            ValidationIssue(
+                rule="file.read",
+                message=f"Unable to read file: {exc}",
+                file_path=str(file_path),
+            )
+        ]
+
+    try:
+        text = raw_bytes.decode("ascii")
+    except UnicodeDecodeError:
+        return [], [
+            ValidationIssue(
+                rule="file.ascii",
+                message=f"{artifact_name} JSON must be ASCII.",
+                file_path=str(file_path),
+            )
+        ]
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [], [
+            ValidationIssue(
+                rule="file.parse",
+                message=f"Invalid JSON: {exc}",
+                file_path=str(file_path),
+            )
+        ]
+
+    if not isinstance(parsed, list):
+        return [], [
+            ValidationIssue(
+                rule="file.shape",
+                message=f"{artifact_name} file must contain one JSON array.",
+                file_path=str(file_path),
+            )
+        ]
+
+    if not all(isinstance(item, dict) for item in parsed):
+        return [], [
+            ValidationIssue(
+                rule="file.shape",
+                message=f"{artifact_name} array must contain only JSON objects.",
+                file_path=str(file_path),
+            )
+        ]
+
+    return list(parsed), []
+
+
+def load_errata_schema(schema_path: Path | None = None) -> dict[str, Any]:
+    """Load and parse the errata JSON Schema document."""
+
+    target = schema_path or default_errata_schema_path()
+    return json.loads(target.read_text(encoding="utf-8"))
+
+
+def load_amendment_schema(schema_path: Path | None = None) -> dict[str, Any]:
+    """Load and parse the amendment JSON Schema document."""
+
+    target = schema_path or default_amendment_schema_path()
+    return json.loads(target.read_text(encoding="utf-8"))
+
+
+def validate_errata_file(
+    file_path: Path,
+    schema: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[ValidationIssue]]:
+    """Run parser + schema validation for one errata JSON file."""
+
+    entries, issues = load_array_of_objects_file(file_path, artifact_name="Errata")
+    if issues:
+        return entries, issues
+
+    schema_issues = validate_document_against_schema(entries, file_path, schema)
+    return entries, schema_issues
+
+
+def validate_amendment_file(
+    file_path: Path,
+    schema: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[ValidationIssue]]:
+    """Run parser + schema validation for one amendment JSON file."""
+
+    entries, issues = load_array_of_objects_file(file_path, artifact_name="Amendment")
+    if issues:
+        return entries, issues
+
+    schema_issues = validate_document_against_schema(entries, file_path, schema)
     return entries, schema_issues

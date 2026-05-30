@@ -41,3 +41,9 @@ Emit machine-readable output:
 ```bash
 trussflow validate --json
 ```
+
+Validate Errata and Amendment artifacts against requirements baseline:
+
+```bash
+trussflow validate-changes --requirements requirements --errata errata --amendments amendments
+```

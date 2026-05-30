@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from trussflow.validation import validate_requirements_tree
+from trussflow.validation import validate_change_artifacts, validate_requirements_tree
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,6 +32,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to requirements directory. Defaults to ./requirements.",
     )
     validate_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Emit machine-readable JSON output.",
+    )
+
+    validate_changes_parser = subparsers.add_parser(
+        "validate-changes",
+        help="Validate errata and amendment files against requirements baseline.",
+    )
+    validate_changes_parser.add_argument(
+        "--requirements",
+        default="requirements",
+        help="Path to requirements directory. Defaults to ./requirements.",
+    )
+    validate_changes_parser.add_argument(
+        "--errata",
+        default="errata",
+        help="Path to errata directory. Defaults to ./errata.",
+    )
+    validate_changes_parser.add_argument(
+        "--amendments",
+        default="amendments",
+        help="Path to amendments directory. Defaults to ./amendments.",
+    )
+    validate_changes_parser.add_argument(
         "--json",
         action="store_true",
         dest="as_json",
@@ -64,6 +90,37 @@ def main(argv: list[str] | None = None) -> int:
         else:
             status = "PASSED" if ok else "FAILED"
             print(f"Validation {status}: {args.path}")
+            if not ok:
+                for issue in issues:
+                    location = issue.file_path
+                    if issue.entry_index is not None:
+                        location = f"{location}[{issue.entry_index}]"
+                    print(f"- {issue.rule} @ {location}: {issue.message}")
+                print(f"Total errors: {len(issues)}")
+        return 0 if ok else 1
+
+    if args.command == "validate-changes":
+        issues = validate_change_artifacts(
+            requirements_dir=Path(args.requirements),
+            errata_dir=Path(args.errata),
+            amendments_dir=Path(args.amendments),
+        )
+        ok = not issues
+
+        if args.as_json:
+            payload = {
+                "valid": ok,
+                "error_count": len(issues),
+                "errors": [issue.to_dict() for issue in issues],
+            }
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            status = "PASSED" if ok else "FAILED"
+            print(
+                "Validation "
+                f"{status}: requirements={args.requirements} "
+                f"errata={args.errata} amendments={args.amendments}"
+            )
             if not ok:
                 for issue in issues:
                     location = issue.file_path
