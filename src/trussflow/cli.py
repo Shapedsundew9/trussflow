@@ -18,8 +18,18 @@ from trussflow.validation.schema_validation import (
 )
 
 RUID_RE = re.compile(r"^([0-9A-Z]+)([0-3])([cpt])$")
+RN_RE = re.compile(r"^[0-9A-Z]+$")
 RN_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 REF_KEYS = ("depends_on", "related_to", "supersedes")
+LIST_INCLUDE_FIELDS = (
+    "ruid",
+    "rn",
+    "rl",
+    "rs",
+    "scope",
+    "path",
+    "text",
+)
 
 
 @dataclass(slots=True)
@@ -189,6 +199,55 @@ def _next_child_rn(parent_rn: str, used_rns: set[str]) -> str | None:
     return None
 
 
+def _rn_exhausted_issue(*, parent_rn: str, parent_ruid: str) -> ValidationIssue:
+    return _issue(
+        "rn.exhausted",
+        (
+            f"No available one-character RN extension under parent RN '{parent_rn}' "
+            f"(parent {parent_ruid}). Maximum immediate children is {len(RN_CHARS)}. "
+            "Direction: add hierarchy depth by creating a child under an existing sibling "
+            "instead of adding another direct sibling at this level."
+        ),
+    )
+
+
+def _resolve_rn_selector(
+    selector: str,
+    *,
+    by_rn: dict[str, RequirementDoc] | None = None,
+) -> str | None:
+    _ = by_rn
+    parsed = _parse_ruid(selector)
+    if parsed is not None:
+        rn, _, _ = parsed
+        return rn
+
+    if RN_RE.match(selector):
+        return selector
+    return None
+
+
+def _resolve_requirement(
+    selector: str,
+    *,
+    by_rn: dict[str, RequirementDoc],
+) -> tuple[RequirementDoc | None, ValidationIssue | None]:
+    rn = _resolve_rn_selector(selector, by_rn=by_rn)
+    if rn is None:
+        return None, _issue(
+            "ruid.parse",
+            f"Identifier must be RN or full RUID: '{selector}'.",
+        )
+
+    target = by_rn.get(rn)
+    if target is None:
+        return None, _issue(
+            "requirement.not_found",
+            f"Requirement not found for RN '{rn}'.",
+        )
+    return target, None
+
+
 def _make_requirement_payload(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "timestamp": _utc_now_iso(),
@@ -310,6 +369,104 @@ def _write_requirement_file(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
+def _requirement_create_root(args: argparse.Namespace) -> int:
+    requirements_dir = Path(args.requirements)
+
+    if requirements_dir.exists() and not requirements_dir.is_dir():
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command="requirement create-root",
+            errors=[
+                _issue(
+                    "path.type",
+                    f"Requirements path must be a directory: {requirements_dir}",
+                )
+            ],
+        )
+
+    if requirements_dir.exists():
+        existing_json = sorted(requirements_dir.rglob("*.json"))
+        if existing_json:
+            return _output(
+                as_json=args.as_json,
+                ok=False,
+                command="requirement create-root",
+                errors=[
+                    _issue(
+                        "requirement.root.exists",
+                        "Cannot create root requirement because requirement files already exist.",
+                    )
+                ],
+            )
+
+    if not RN_RE.match(args.rn):
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command="requirement create-root",
+            errors=[
+                _issue(
+                    "rn.parse",
+                    f"RN must match pattern [0-9A-Z]+: '{args.rn}'.",
+                )
+            ],
+        )
+
+    payload = _make_requirement_payload(args)
+    payload["ruid"] = f"{args.rn}{args.rl}{args.rs}"
+
+    warnings: list[ValidationIssue] = []
+    errors: list[ValidationIssue] = []
+
+    ref_issues = _validate_refs_exist(payload["refs"], by_ruid={})
+    errors.extend(ref_issues)
+
+    if re.search(r"\bmay\b", str(payload.get("text", "")), re.IGNORECASE):
+        warnings.append(
+            _issue(
+                "text.normative_may",
+                "Requirement text uses 'may'; use 'shall' for normative requirements.",
+            )
+        )
+
+    if errors:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command="requirement create-root",
+            warnings=warnings,
+            errors=errors,
+        )
+
+    target_path = requirements_dir / "root.json"
+    result = {
+        "mode": "create-root",
+        "dry_run": not args.apply,
+        "ruid": payload["ruid"],
+        "path": str(target_path),
+        "requirement": payload,
+    }
+
+    if not args.apply:
+        return _output(
+            as_json=args.as_json,
+            ok=True,
+            command="requirement create-root",
+            warnings=warnings,
+            result=result,
+        )
+
+    _write_requirement_file(target_path, payload)
+    return _output(
+        as_json=args.as_json,
+        ok=True,
+        command="requirement create-root",
+        warnings=warnings,
+        result=result,
+    )
+
+
 def _requirement_get(args: argparse.Namespace) -> int:
     docs, issues = _load_requirements(Path(args.requirements))
     if issues:
@@ -320,16 +477,14 @@ def _requirement_get(args: argparse.Namespace) -> int:
             errors=issues,
         )
 
-    by_ruid, _, _ = _build_indexes(docs)
-    target = by_ruid.get(args.ruid)
-    if target is None:
+    _, by_rn, _ = _build_indexes(docs)
+    target, resolve_issue = _resolve_requirement(args.ruid, by_rn=by_rn)
+    if resolve_issue is not None:
         return _output(
             as_json=args.as_json,
             ok=False,
             command="requirement get",
-            errors=[
-                _issue("requirement.not_found", f"Requirement not found: {args.ruid}")
-            ],
+            errors=[resolve_issue],
         )
 
     return _output(
@@ -337,7 +492,9 @@ def _requirement_get(args: argparse.Namespace) -> int:
         ok=True,
         command="requirement get",
         result={
-            "ruid": args.ruid,
+            "selector": args.ruid,
+            "rn": target.rn,
+            "ruid": target.data["ruid"],
             "path": str(target.file_path),
             "requirement": target.data,
         },
@@ -354,21 +511,22 @@ def _requirement_list(args: argparse.Namespace) -> int:
             errors=issues,
         )
 
+    _, by_rn, _ = _build_indexes(docs)
     items = docs
     if args.parent:
-        parent_parse = _parse_ruid(args.parent)
-        if parent_parse is None:
+        parent_rn = _resolve_rn_selector(args.parent, by_rn=by_rn)
+        if parent_rn is None:
             return _output(
                 as_json=args.as_json,
                 ok=False,
                 command="requirement list",
                 errors=[
                     _issue(
-                        "ruid.parse", f"Unable to parse parent RUID '{args.parent}'."
+                        "ruid.parse",
+                        f"Parent selector must be RN or full RUID: '{args.parent}'.",
                     )
                 ],
             )
-        parent_rn, _, _ = parent_parse
         items = [
             doc for doc in items if doc.rn.startswith(parent_rn) and doc.rn != parent_rn
         ]
@@ -388,6 +546,40 @@ def _requirement_list(args: argparse.Namespace) -> int:
     if args.limit is not None:
         items = items[: args.limit]
 
+    include_fields = [part.strip() for part in args.include.split(",") if part.strip()]
+    if not include_fields:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command="requirement list",
+            errors=[
+                _issue(
+                    "list.include.empty",
+                    "Include list must contain at least one field.",
+                )
+            ],
+        )
+
+    unknown_fields = [
+        field for field in include_fields if field not in LIST_INCLUDE_FIELDS
+    ]
+    if unknown_fields:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command="requirement list",
+            errors=[
+                _issue(
+                    "list.include.invalid",
+                    (
+                        "Unknown include field(s): "
+                        f"{', '.join(sorted(unknown_fields))}. "
+                        f"Allowed fields: {', '.join(LIST_INCLUDE_FIELDS)}."
+                    ),
+                )
+            ],
+        )
+
     result_items = [
         {
             "ruid": doc.data["ruid"],
@@ -399,6 +591,10 @@ def _requirement_list(args: argparse.Namespace) -> int:
             "text": doc.data.get("text"),
         }
         for doc in items
+    ]
+
+    result_items = [
+        {field: item[field] for field in include_fields} for item in result_items
     ]
 
     return _output(
@@ -423,15 +619,13 @@ def _requirement_inspect(args: argparse.Namespace) -> int:
         )
 
     by_ruid, by_rn, children_by_rn = _build_indexes(docs)
-    target = by_ruid.get(args.ruid)
-    if target is None:
+    target, resolve_issue = _resolve_requirement(args.ruid, by_rn=by_rn)
+    if resolve_issue is not None:
         return _output(
             as_json=args.as_json,
             ok=False,
             command="requirement inspect",
-            errors=[
-                _issue("requirement.not_found", f"Requirement not found: {args.ruid}")
-            ],
+            errors=[resolve_issue],
         )
 
     include = set(part.strip() for part in args.include.split(",") if part.strip())
@@ -492,18 +686,13 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
         )
 
     by_ruid, by_rn, _ = _build_indexes(docs)
-    anchor = by_ruid.get(args.anchor_ruid)
-    if anchor is None:
+    anchor, resolve_issue = _resolve_requirement(args.anchor_ruid, by_rn=by_rn)
+    if resolve_issue is not None:
         return _output(
             as_json=args.as_json,
             ok=False,
             command=f"requirement {mode}",
-            errors=[
-                _issue(
-                    "requirement.not_found",
-                    f"Requirement not found: {args.anchor_ruid}",
-                )
-            ],
+            errors=[resolve_issue],
         )
 
     if mode == "create-sibling":
@@ -547,9 +736,9 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
             ok=False,
             command=f"requirement {mode}",
             errors=[
-                _issue(
-                    "rn.exhausted",
-                    f"No available one-character RN extension under parent RN '{parent_rn}'.",
+                _rn_exhausted_issue(
+                    parent_rn=parent_rn,
+                    parent_ruid=str(parent.data["ruid"]),
                 )
             ],
         )
@@ -678,9 +867,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     requirement_get_parser = requirement_subparsers.add_parser(
         "get",
-        help="Fetch one requirement by RUID.",
+        help="Fetch one requirement by RN or RUID.",
     )
-    requirement_get_parser.add_argument("ruid", help="Requirement RUID to fetch.")
+    requirement_get_parser.add_argument(
+        "ruid",
+        help="Requirement selector (RN or RUID).",
+    )
     requirement_get_parser.add_argument(
         "--requirements",
         default="requirements",
@@ -703,7 +895,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to requirements directory. Defaults to ./requirements.",
     )
     requirement_list_parser.add_argument(
-        "--parent", help="Filter to descendants of this RUID."
+        "--parent", help="Filter to descendants of this parent selector (RN or RUID)."
     )
     requirement_list_parser.add_argument(
         "--rl",
@@ -731,6 +923,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of matching requirements to return.",
     )
     requirement_list_parser.add_argument(
+        "--include",
+        default=",".join(LIST_INCLUDE_FIELDS),
+        help=(
+            "Comma-separated fields to include per item. "
+            f"Allowed: {', '.join(LIST_INCLUDE_FIELDS)}."
+        ),
+    )
+    requirement_list_parser.add_argument(
         "--json",
         action="store_true",
         dest="as_json",
@@ -741,7 +941,10 @@ def build_parser() -> argparse.ArgumentParser:
         "inspect",
         help="Fetch one requirement plus nearby context for prompting.",
     )
-    requirement_inspect_parser.add_argument("ruid", help="Requirement RUID to inspect.")
+    requirement_inspect_parser.add_argument(
+        "ruid",
+        help="Requirement selector (RN or RUID).",
+    )
     requirement_inspect_parser.add_argument(
         "--requirements",
         default="requirements",
@@ -832,13 +1035,88 @@ def build_parser() -> argparse.ArgumentParser:
             help="Emit machine-readable JSON output.",
         )
 
+    def _add_root_create_arguments(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--requirements",
+            default="requirements",
+            help="Path to requirements directory. Defaults to ./requirements.",
+        )
+        parser.add_argument(
+            "--rn",
+            required=True,
+            help="RN value for root requirement.",
+        )
+        parser.add_argument(
+            "--rl",
+            type=int,
+            choices=[0, 1, 2, 3],
+            required=True,
+            help="RL value for root requirement.",
+        )
+        parser.add_argument(
+            "--rs",
+            choices=["c", "p", "t"],
+            required=True,
+            help="RS value for root requirement.",
+        )
+        parser.add_argument("--text", required=True, help="Requirement statement text.")
+        parser.add_argument(
+            "--rationale",
+            required=True,
+            help="Requirement rationale text.",
+        )
+        parser.add_argument(
+            "--scope",
+            choices=["in", "out"],
+            required=True,
+            help="Requirement scope.",
+        )
+        parser.add_argument(
+            "--depends-on",
+            dest="depends_on",
+            action="append",
+            default=[],
+            help="Add a refs.depends_on RUID. Can be repeated.",
+        )
+        parser.add_argument(
+            "--related-to",
+            dest="related_to",
+            action="append",
+            default=[],
+            help="Add a refs.related_to RUID. Can be repeated.",
+        )
+        parser.add_argument(
+            "--supersedes",
+            dest="supersedes",
+            action="append",
+            default=[],
+            help="Add a refs.supersedes RUID. Can be repeated.",
+        )
+        parser.add_argument(
+            "--apply",
+            action="store_true",
+            help="Write changes to disk. Without this flag, command runs as dry-run.",
+        )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            dest="as_json",
+            help="Emit machine-readable JSON output.",
+        )
+
+    create_root_parser = requirement_subparsers.add_parser(
+        "create-root",
+        help="Create the initial root requirement in an empty requirements tree.",
+    )
+    _add_root_create_arguments(create_root_parser)
+
     create_child_parser = requirement_subparsers.add_parser(
         "create-child",
         help="Create a child requirement and infer the next available RN.",
     )
     _add_create_arguments(
         create_child_parser,
-        anchor_help="Parent requirement RUID.",
+        anchor_help="Parent requirement selector (RN or RUID).",
     )
 
     create_sibling_parser = requirement_subparsers.add_parser(
@@ -847,7 +1125,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_create_arguments(
         create_sibling_parser,
-        anchor_help="Existing sibling requirement RUID.",
+        anchor_help="Existing sibling selector (RN or RUID).",
     )
     return parser
 
@@ -917,6 +1195,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
 
     if args.command == "requirement":
+        if args.requirement_command == "create-root":
+            return _requirement_create_root(args)
         if args.requirement_command == "get":
             return _requirement_get(args)
         if args.requirement_command == "list":

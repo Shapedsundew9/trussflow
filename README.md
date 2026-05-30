@@ -50,23 +50,33 @@ trussflow validate-changes --requirements requirements --errata errata --amendme
 
 Requirement query commands:
 
+Selectors can be RN (`AB`) or full RUID (`AB1c`).
+
 ```bash
-trussflow requirement get AB1c --json
-trussflow requirement list --parent A0c --json
-trussflow requirement inspect AB1c --include parent,siblings,children,refs --json
+trussflow requirement get AB --json
+trussflow requirement list --parent A --json
+trussflow requirement list --parent A --include ruid,text --json
+trussflow requirement inspect AB --include parent,siblings,children,refs --json
 ```
 
 Mechanical requirement creation commands (dry-run by default):
 
 ```bash
-trussflow requirement create-child A0c \
+trussflow requirement create-root \
+ --rn A --rl 0 --rs p \
+ --text "The product shall ..." \
+ --rationale "..." \
+ --scope in \
+ --apply --json
+
+trussflow requirement create-child A \
  --rl 1 --rs p \
  --text "The system shall ..." \
  --rationale "..." \
  --scope in \
  --json
 
-trussflow requirement create-sibling AB1c \
+trussflow requirement create-sibling AB \
  --rl 1 --rs p \
  --text "The system shall ..." \
  --rationale "..." \

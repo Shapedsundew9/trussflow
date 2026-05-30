@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from trussflow.cli import main
+from trussflow.cli import RN_CHARS, main
 
 
 def _write(path: Path, content: str) -> None:
@@ -124,6 +124,53 @@ def _create_valid_change_artifacts(base: Path) -> None:
     )
 
 
+def _create_sibling_exhausted_tree(base: Path) -> None:
+    requirements = base / "requirements"
+    _write(
+        requirements / "root.json",
+        json.dumps(
+            {
+                "ruid": "A0c",
+                "timestamp": "2026-05-30T12:00:00Z",
+                "text": "The product shall define a valid root requirement.",
+                "rationale": "This is the top-level requirement.",
+                "scope": "in",
+                "refs": {
+                    "depends_on": [],
+                    "related_to": [],
+                    "supersedes": [],
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+
+    for token in RN_CHARS:
+        ruid = f"A{token}1c"
+        _write(
+            requirements / "A" / f"{ruid}.json",
+            json.dumps(
+                {
+                    "ruid": ruid,
+                    "timestamp": "2026-05-30T12:10:00Z",
+                    "text": "The system shall define one valid child requirement.",
+                    "rationale": "This establishes hierarchy for validation.",
+                    "scope": "in",
+                    "refs": {
+                        "depends_on": [],
+                        "related_to": [],
+                        "supersedes": [],
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+        )
+
+
 def test_cli_version(capsys):
     code = main(["--version"])
     out = capsys.readouterr().out.strip()
@@ -191,21 +238,39 @@ def test_cli_requirement_get_json_success(tmp_path: Path, monkeypatch, capsys):
     _create_valid_tree(tmp_path)
     monkeypatch.chdir(tmp_path)
 
-    code = main(["requirement", "get", "AB1c", "--json"])
+    code = main(["requirement", "get", "AB", "--json"])
     out = capsys.readouterr().out
     payload = json.loads(out)
 
     assert code == 0
     assert payload["ok"] is True
+    assert payload["result"]["selector"] == "AB"
+    assert payload["result"]["rn"] == "AB"
     assert payload["result"]["ruid"] == "AB1c"
     assert payload["result"]["requirement"]["ruid"] == "AB1c"
+
+
+def test_cli_requirement_get_accepts_ruid_suffix_mismatch(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(["requirement", "get", "AB1p", "--json"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["result"]["rn"] == "AB"
+    assert payload["result"]["ruid"] == "AB1c"
 
 
 def test_cli_requirement_list_parent_filter(tmp_path: Path, monkeypatch, capsys):
     _create_valid_tree(tmp_path)
     monkeypatch.chdir(tmp_path)
 
-    code = main(["requirement", "list", "--parent", "A0c", "--json"])
+    code = main(["requirement", "list", "--parent", "A", "--json"])
     out = capsys.readouterr().out
     payload = json.loads(out)
 
@@ -213,6 +278,54 @@ def test_cli_requirement_list_parent_filter(tmp_path: Path, monkeypatch, capsys)
     assert payload["ok"] is True
     assert payload["result"]["count"] == 1
     assert payload["result"]["items"][0]["ruid"] == "AB1c"
+
+
+def test_cli_requirement_list_include_projection(tmp_path: Path, monkeypatch, capsys):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "list",
+            "--parent",
+            "A",
+            "--include",
+            "ruid,text",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["result"]["count"] == 1
+    assert sorted(payload["result"]["items"][0].keys()) == ["ruid", "text"]
+    assert payload["result"]["items"][0]["ruid"] == "AB1c"
+
+
+def test_cli_requirement_list_include_invalid_field(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "list",
+            "--include",
+            "ruid,unknown_field",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 1
+    assert payload["ok"] is False
+    assert payload["errors"][0]["error_code"] == "list.include.invalid"
 
 
 def test_cli_requirement_create_child_dry_run(tmp_path: Path, monkeypatch, capsys):
@@ -223,7 +336,7 @@ def test_cli_requirement_create_child_dry_run(tmp_path: Path, monkeypatch, capsy
         [
             "requirement",
             "create-child",
-            "A0c",
+            "A",
             "--rl",
             "1",
             "--rs",
@@ -247,6 +360,111 @@ def test_cli_requirement_create_child_dry_run(tmp_path: Path, monkeypatch, capsy
     assert not (tmp_path / "requirements" / "A" / "AA1p.json").exists()
 
 
+def test_cli_requirement_create_root_dry_run(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-root",
+            "--rn",
+            "A",
+            "--rl",
+            "0",
+            "--rs",
+            "p",
+            "--text",
+            "The product shall define the initial root requirement.",
+            "--rationale",
+            "Bootstrap the requirements tree.",
+            "--scope",
+            "in",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["result"]["dry_run"] is True
+    assert payload["result"]["ruid"] == "A0p"
+    assert not (tmp_path / "requirements" / "root.json").exists()
+
+
+def test_cli_requirement_create_root_apply_writes_root_file(
+    tmp_path: Path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-root",
+            "--rn",
+            "A",
+            "--rl",
+            "0",
+            "--rs",
+            "p",
+            "--text",
+            "The product shall define the initial root requirement.",
+            "--rationale",
+            "Bootstrap the requirements tree.",
+            "--scope",
+            "in",
+            "--apply",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["result"]["dry_run"] is False
+
+    root_path = tmp_path / "requirements" / "root.json"
+    assert root_path.exists()
+
+    doc = json.loads(root_path.read_text(encoding="ascii"))
+    assert doc["ruid"] == "A0p"
+    assert doc["scope"] == "in"
+
+
+def test_cli_requirement_create_root_fails_if_tree_exists(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-root",
+            "--rn",
+            "B",
+            "--rl",
+            "0",
+            "--rs",
+            "p",
+            "--text",
+            "The product shall define another root requirement.",
+            "--rationale",
+            "Should fail because root already exists.",
+            "--scope",
+            "in",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 1
+    assert payload["ok"] is False
+    assert payload["errors"][0]["error_code"] == "requirement.root.exists"
+
+
 def test_cli_requirement_create_child_apply_writes_file(
     tmp_path: Path, monkeypatch, capsys
 ):
@@ -257,7 +475,7 @@ def test_cli_requirement_create_child_apply_writes_file(
         [
             "requirement",
             "create-child",
-            "A0c",
+            "A",
             "--rl",
             "1",
             "--rs",
@@ -285,3 +503,36 @@ def test_cli_requirement_create_child_apply_writes_file(
     doc = json.loads(written_path.read_text(encoding="ascii"))
     assert doc["ruid"] == "AA1p"
     assert doc["scope"] == "in"
+
+
+def test_cli_requirement_create_sibling_exhausted_has_guidance(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_sibling_exhausted_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-sibling",
+            "AA",
+            "--rl",
+            "1",
+            "--rs",
+            "p",
+            "--text",
+            "The system shall define one more sibling requirement.",
+            "--rationale",
+            "Used to test sibling exhaustion handling.",
+            "--scope",
+            "in",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 1
+    assert payload["ok"] is False
+    assert payload["errors"][0]["error_code"] == "rn.exhausted"
+    assert "Direction: add hierarchy depth" in payload["errors"][0]["message"]
