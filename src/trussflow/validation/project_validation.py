@@ -261,6 +261,47 @@ def _validate_storage_model(
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
 
+    root_file = requirements_dir / "root.json"
+    for file_path in sorted(requirements_dir.rglob("*.json")):
+        if file_path == root_file:
+            continue
+
+        if file_path.parent == requirements_dir:
+            issues.append(
+                ValidationIssue(
+                    rule="storage.file_location",
+                    message=(
+                        "Only root.json may exist at the requirements/ top level. "
+                        f"Found '{file_path.name}'."
+                    ),
+                    file_path=str(file_path),
+                )
+            )
+            continue
+
+        if file_path.name == "root.json":
+            issues.append(
+                ValidationIssue(
+                    rule="storage.root.location",
+                    message="root.json is only allowed at requirements/root.json.",
+                    file_path=str(file_path),
+                )
+            )
+            continue
+
+        expected_name = f"{file_path.parent.name}.json"
+        if file_path.name != expected_name:
+            issues.append(
+                ValidationIssue(
+                    rule="storage.file_name",
+                    message=(
+                        "Requirement list file name must match its parent folder RUID. "
+                        f"Expected '{expected_name}', found '{file_path.name}'."
+                    ),
+                    file_path=str(file_path),
+                )
+            )
+
     for folder in sorted(path for path in requirements_dir.rglob("*") if path.is_dir()):
         if not any(folder.iterdir()):
             issues.append(

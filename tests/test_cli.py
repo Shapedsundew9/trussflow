@@ -38,22 +38,24 @@ def _create_valid_tree(base: Path) -> None:
         + "\n",
     )
     _write(
-        requirements / "A" / "AB.json",
+        requirements / "A" / "A.json",
         json.dumps(
-            {
-                "ruid": "AB",
-                "rl": 1,
-                "rs": "c",
-                "timestamp": "2026-05-30T12:10:00Z",
-                "text": "The system shall define one valid child requirement.",
-                "rationale": "This establishes hierarchy for validation.",
-                "scope": "in",
-                "refs": {
-                    "depends_on": [],
-                    "related_to": [],
-                    "supersedes": [],
-                },
-            },
+            [
+                {
+                    "ruid": "AB",
+                    "rl": 1,
+                    "rs": "c",
+                    "timestamp": "2026-05-30T12:10:00Z",
+                    "text": "The system shall define one valid child requirement.",
+                    "rationale": "This establishes hierarchy for validation.",
+                    "scope": "in",
+                    "refs": {
+                        "depends_on": [],
+                        "related_to": [],
+                        "supersedes": [],
+                    },
+                }
+            ],
             indent=2,
             sort_keys=True,
         )
@@ -155,30 +157,30 @@ def _create_sibling_exhausted_tree(base: Path) -> None:
         + "\n",
     )
 
+    entries = []
     for token in RUID_CHARS:
         ruid = f"A{token}"
-        _write(
-            requirements / "A" / f"{ruid}.json",
-            json.dumps(
-                {
-                    "ruid": ruid,
-                    "rl": 1,
-                    "rs": "c",
-                    "timestamp": "2026-05-30T12:10:00Z",
-                    "text": "The system shall define one valid child requirement.",
-                    "rationale": "This establishes hierarchy for validation.",
-                    "scope": "in",
-                    "refs": {
-                        "depends_on": [],
-                        "related_to": [],
-                        "supersedes": [],
-                    },
+        entries.append(
+            {
+                "ruid": ruid,
+                "rl": 1,
+                "rs": "c",
+                "timestamp": "2026-05-30T12:10:00Z",
+                "text": "The system shall define one valid child requirement.",
+                "rationale": "This establishes hierarchy for validation.",
+                "scope": "in",
+                "refs": {
+                    "depends_on": [],
+                    "related_to": [],
+                    "supersedes": [],
                 },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
+            }
         )
+
+    _write(
+        requirements / "A" / "A.json",
+        json.dumps(entries, indent=2, sort_keys=True) + "\n",
+    )
 
 
 def _write_prompt_template(path: Path, content: str) -> None:
@@ -378,7 +380,10 @@ def test_cli_requirement_create_child_dry_run(tmp_path: Path, monkeypatch, capsy
     assert payload["ok"] is True
     assert payload["result"]["dry_run"] is True
     assert payload["result"]["ruid"] == "A0"
-    assert not (tmp_path / "requirements" / "A" / "A0.json").exists()
+    existing = json.loads(
+        (tmp_path / "requirements" / "A" / "A.json").read_text(encoding="ascii")
+    )
+    assert all(entry["ruid"] != "A0" for entry in existing)
 
 
 def test_cli_requirement_create_root_dry_run(tmp_path: Path, monkeypatch, capsys):
@@ -520,12 +525,12 @@ def test_cli_requirement_create_child_apply_writes_file(
     assert payload["ok"] is True
     assert payload["result"]["dry_run"] is False
 
-    written_path = tmp_path / "requirements" / "A" / "A0.json"
+    written_path = tmp_path / "requirements" / "A" / "A.json"
     assert written_path.exists()
 
-    doc = json.loads(written_path.read_text(encoding="ascii"))
-    assert doc["ruid"] == "A0"
-    assert doc["scope"] == "in"
+    entries = json.loads(written_path.read_text(encoding="ascii"))
+    created = next(entry for entry in entries if entry["ruid"] == "A0")
+    assert created["scope"] == "in"
 
 
 def test_cli_requirement_create_child_accepts_rl_and_rs(
@@ -559,10 +564,11 @@ def test_cli_requirement_create_child_accepts_rl_and_rs(
     assert code == 0
     assert payload["ok"] is True
 
-    written_path = tmp_path / "requirements" / "A" / "A0.json"
-    doc = json.loads(written_path.read_text(encoding="ascii"))
-    assert doc["rl"] == 2
-    assert doc["rs"] == "c"
+    written_path = tmp_path / "requirements" / "A" / "A.json"
+    entries = json.loads(written_path.read_text(encoding="ascii"))
+    created = next(entry for entry in entries if entry["ruid"] == "A0")
+    assert created["rl"] == 2
+    assert created["rs"] == "c"
 
 
 def test_cli_requirement_create_child_rejects_rl_below_parent(
@@ -653,11 +659,12 @@ def test_cli_requirement_create_child_accepts_all_ref_types(
     assert code == 0
     assert payload["ok"] is True
 
-    written_path = tmp_path / "requirements" / "A" / "A0.json"
-    doc = json.loads(written_path.read_text(encoding="ascii"))
-    assert doc["refs"]["depends_on"] == ["A"]
-    assert doc["refs"]["related_to"] == ["AB"]
-    assert doc["refs"]["supersedes"] == ["AB"]
+    written_path = tmp_path / "requirements" / "A" / "A.json"
+    entries = json.loads(written_path.read_text(encoding="ascii"))
+    created = next(entry for entry in entries if entry["ruid"] == "A0")
+    assert created["refs"]["depends_on"] == ["A"]
+    assert created["refs"]["related_to"] == ["AB"]
+    assert created["refs"]["supersedes"] == ["AB"]
 
 
 def test_cli_requirement_create_sibling_accepts_generic_ref_arg(
@@ -693,11 +700,12 @@ def test_cli_requirement_create_sibling_accepts_generic_ref_arg(
     assert code == 0
     assert payload["ok"] is True
 
-    written_path = tmp_path / "requirements" / "A" / "A0.json"
-    doc = json.loads(written_path.read_text(encoding="ascii"))
-    assert doc["refs"]["depends_on"] == ["A"]
-    assert doc["refs"]["related_to"] == ["AB"]
-    assert doc["refs"]["supersedes"] == ["AB"]
+    written_path = tmp_path / "requirements" / "A" / "A.json"
+    entries = json.loads(written_path.read_text(encoding="ascii"))
+    created = next(entry for entry in entries if entry["ruid"] == "A0")
+    assert created["refs"]["depends_on"] == ["A"]
+    assert created["refs"]["related_to"] == ["AB"]
+    assert created["refs"]["supersedes"] == ["AB"]
 
 
 def test_cli_requirement_create_sibling_accepts_rl_and_rs(
@@ -731,10 +739,11 @@ def test_cli_requirement_create_sibling_accepts_rl_and_rs(
     assert code == 0
     assert payload["ok"] is True
 
-    written_path = tmp_path / "requirements" / "A" / "A0.json"
-    doc = json.loads(written_path.read_text(encoding="ascii"))
-    assert doc["rl"] == 2
-    assert doc["rs"] == "t"
+    written_path = tmp_path / "requirements" / "A" / "A.json"
+    entries = json.loads(written_path.read_text(encoding="ascii"))
+    created = next(entry for entry in entries if entry["ruid"] == "A0")
+    assert created["rl"] == 2
+    assert created["rs"] == "t"
 
 
 def test_cli_requirement_create_sibling_exhausted_has_guidance(

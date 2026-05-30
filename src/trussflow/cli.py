@@ -92,45 +92,49 @@ def _load_requirements(
             continue
         if not entries:
             continue
-        entry = entries[0]
-        ruid = entry.get("ruid")
-        if not isinstance(ruid, str):
-            issues.append(
-                _issue(
-                    "ruid.parse",
-                    "Requirement is missing a string ruid.",
-                    str(file_path),
+        for entry in entries:
+            ruid = entry.get("ruid")
+            if not isinstance(ruid, str):
+                issues.append(
+                    _issue(
+                        "ruid.parse",
+                        "Requirement is missing a string ruid.",
+                        str(file_path),
+                    )
                 )
-            )
-            continue
-        if not RUID_TOKEN_RE.match(ruid):
-            issues.append(
-                _issue("ruid.parse", f"Unable to parse RUID '{ruid}'.", str(file_path))
-            )
-            continue
+                continue
+            if not RUID_TOKEN_RE.match(ruid):
+                issues.append(
+                    _issue(
+                        "ruid.parse",
+                        f"Unable to parse RUID '{ruid}'.",
+                        str(file_path),
+                    )
+                )
+                continue
 
-        rl = entry.get("rl")
-        rs = entry.get("rs")
-        if not isinstance(rl, int) or rl not in (0, 1, 2, 3):
-            issues.append(
-                _issue(
-                    "rl.parse",
-                    f"Requirement '{ruid}' is missing a valid integer rl in [0,1,2,3].",
-                    str(file_path),
+            rl = entry.get("rl")
+            rs = entry.get("rs")
+            if not isinstance(rl, int) or rl not in (0, 1, 2, 3):
+                issues.append(
+                    _issue(
+                        "rl.parse",
+                        f"Requirement '{ruid}' is missing a valid integer rl in [0,1,2,3].",
+                        str(file_path),
+                    )
                 )
-            )
-            continue
-        if not isinstance(rs, str) or rs not in ("c", "p", "t"):
-            issues.append(
-                _issue(
-                    "rs.parse",
-                    f"Requirement '{ruid}' is missing a valid rs in ['c','p','t'].",
-                    str(file_path),
+                continue
+            if not isinstance(rs, str) or rs not in ("c", "p", "t"):
+                issues.append(
+                    _issue(
+                        "rs.parse",
+                        f"Requirement '{ruid}' is missing a valid rs in ['c','p','t'].",
+                        str(file_path),
+                    )
                 )
-            )
-            continue
+                continue
 
-        docs.append(RequirementDoc(data=entry, file_path=file_path, rl=rl, rs=rs))
+            docs.append(RequirementDoc(data=entry, file_path=file_path, rl=rl, rs=rs))
 
     if not docs and not issues:
         issues.append(
@@ -436,6 +440,81 @@ def _validate_proposed_requirement(
 
 
 def _write_requirement_file(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="ascii"
+    )
+
+
+def _load_requirement_list_file(
+    path: Path,
+) -> tuple[list[dict[str, Any]], list[ValidationIssue]]:
+    if not path.exists():
+        return [], []
+    if not path.is_file():
+        return [], [
+            _issue(
+                "file.type",
+                f"Requirement list path must be a file: {path}",
+                str(path),
+            )
+        ]
+
+    try:
+        raw_bytes = path.read_bytes()
+    except OSError as exc:
+        return [], [
+            _issue(
+                "file.read",
+                f"Unable to read requirement list file: {exc}",
+                str(path),
+            )
+        ]
+
+    try:
+        text = raw_bytes.decode("ascii")
+    except UnicodeDecodeError:
+        return [], [
+            _issue(
+                "file.ascii",
+                "Requirement JSON must be ASCII.",
+                str(path),
+            )
+        ]
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [], [
+            _issue(
+                "file.parse",
+                f"Invalid JSON: {exc}",
+                str(path),
+            )
+        ]
+
+    if not isinstance(parsed, list):
+        return [], [
+            _issue(
+                "file.shape",
+                "Requirement list file must contain one JSON array.",
+                str(path),
+            )
+        ]
+
+    if not all(isinstance(item, dict) for item in parsed):
+        return [], [
+            _issue(
+                "file.shape",
+                "Requirement list file must contain only JSON objects.",
+                str(path),
+            )
+        ]
+
+    return list(parsed), []
+
+
+def _write_requirement_list_file(path: Path, payload: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="ascii"
@@ -1074,7 +1153,7 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
             errors=validation_errors,
         )
 
-    target_path = Path(args.requirements) / parent_ruid / f"{new_ruid}.json"
+    target_path = Path(args.requirements) / parent_ruid / f"{parent_ruid}.json"
     would_write = {
         "mode": mode,
         "dry_run": not args.apply,
@@ -1095,7 +1174,22 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
             result=would_write,
         )
 
-    _write_requirement_file(target_path, payload)
+    list_entries, list_issues = _load_requirement_list_file(target_path)
+    if list_issues:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command=f"requirement {mode}",
+            warnings=warnings,
+            errors=list_issues,
+        )
+
+    list_entries.append(payload)
+    list_entries = sorted(
+        list_entries,
+        key=lambda entry: str(entry.get("ruid", "")),
+    )
+    _write_requirement_list_file(target_path, list_entries)
     if not args.as_json:
         return _output_created_message(str(new_ruid))
     return _output(

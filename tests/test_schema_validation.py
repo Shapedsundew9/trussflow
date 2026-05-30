@@ -51,6 +51,40 @@ def test_schema_validation_accepts_valid_entry(tmp_path: Path) -> None:
     assert issues == []
 
 
+def test_schema_validation_accepts_descendant_array_file(tmp_path: Path) -> None:
+    requirement_file = tmp_path / "requirements" / "A" / "A.json"
+    _write(
+        requirement_file,
+        json.dumps(
+            [
+                {
+                    "ruid": "A0",
+                    "rl": 1,
+                    "rs": "c",
+                    "timestamp": "2026-05-30T12:10:00Z",
+                    "text": "The system shall define one valid child requirement.",
+                    "rationale": "This establishes hierarchy for validation.",
+                    "scope": "in",
+                    "refs": {
+                        "depends_on": [],
+                        "related_to": [],
+                        "supersedes": [],
+                    },
+                }
+            ],
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+
+    entries, issues = validate_requirement_file(requirement_file, load_schema())
+
+    assert len(entries) == 1
+    assert entries[0]["ruid"] == "A0"
+    assert issues == []
+
+
 def test_schema_validation_rejects_unknown_field(tmp_path: Path) -> None:
     requirement_file = tmp_path / "requirements" / "root.json"
     _write(
@@ -83,11 +117,26 @@ def test_schema_validation_rejects_unknown_field(tmp_path: Path) -> None:
     assert any(issue.rule == "schema" for issue in issues)
 
 
-def test_schema_validation_rejects_non_object_document(tmp_path: Path) -> None:
+def test_schema_validation_rejects_root_array_document(tmp_path: Path) -> None:
     requirement_file = tmp_path / "requirements" / "root.json"
     _write(
         requirement_file,
         json.dumps([{"ruid": "A"}], indent=2) + "\n",
+    )
+
+    _, issues = validate_requirement_file(requirement_file, load_schema())
+
+    assert issues
+    assert any(issue.rule == "file.shape" for issue in issues)
+
+
+def test_schema_validation_rejects_descendant_non_array_document(
+    tmp_path: Path,
+) -> None:
+    requirement_file = tmp_path / "requirements" / "A" / "A.json"
+    _write(
+        requirement_file,
+        json.dumps({"ruid": "A0"}, indent=2) + "\n",
     )
 
     _, issues = validate_requirement_file(requirement_file, load_schema())

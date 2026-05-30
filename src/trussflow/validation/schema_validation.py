@@ -62,7 +62,12 @@ def load_schema(schema_path: Path | None = None) -> dict[str, Any]:
 def load_requirement_file(
     file_path: Path,
 ) -> tuple[list[dict[str, Any]], list[ValidationIssue]]:
-    """Load one JSON requirement object and return it as a single-entry list."""
+    """Load one requirement file.
+
+    Storage model:
+    - requirements/root.json contains one JSON object.
+    - Descendant files contain one JSON array of requirement objects.
+    """
 
     issues: list[ValidationIssue] = []
 
@@ -99,16 +104,36 @@ def load_requirement_file(
             )
         ]
 
-    if not isinstance(parsed, dict):
+    if file_path.name == "root.json":
+        if not isinstance(parsed, dict):
+            return [], [
+                ValidationIssue(
+                    rule="file.shape",
+                    message="Root requirement file must contain one JSON object.",
+                    file_path=str(file_path),
+                )
+            ]
+        return [parsed], issues
+
+    if not isinstance(parsed, list):
         return [], [
             ValidationIssue(
                 rule="file.shape",
-                message="Requirement file must contain one JSON object.",
+                message="Requirement list file must contain one JSON array.",
                 file_path=str(file_path),
             )
         ]
 
-    return [parsed], issues
+    if not all(isinstance(item, dict) for item in parsed):
+        return [], [
+            ValidationIssue(
+                rule="file.shape",
+                message="Requirement list file must contain only JSON objects.",
+                file_path=str(file_path),
+            )
+        ]
+
+    return list(parsed), issues
 
 
 def validate_entries_against_schema(

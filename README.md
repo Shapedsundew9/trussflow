@@ -67,6 +67,8 @@ one-character extension in this order: `0-9`, then `A-Z`. For the root in an emp
 tree, the first RUID is `0`. Root `rl` is fixed to `0` and root `rs` defaults to `p`.
 Reference selectors for `--depends-on`, `--related-to`, `--supersedes`, and `--ref`
 must be RUID values (for example `AB`).
+For descendants, created requirements are written into the parent-level list file at
+`requirements/<parent-ruid>/<parent-ruid>.json`.
 
 ```bash
 trussflow requirement create-root \

@@ -68,8 +68,10 @@ Rules:
 Requirements are stored under requirements/ using RUID-based folders.
 
 * Root file: requirements/root.json
-* A descendant requirement is stored at `requirements/<parent-ruid>/<parent-ruid>.json`
+* Descendant requirements are grouped by parent and stored at `requirements/<parent-ruid>/<parent-ruid>.json`.
+* Each descendant file shall contain one JSON array of immediate child requirements for that parent.
 * A requirement gets its own folder only if it has children.
+* Per-child files (for example `requirements/A/AB.json`) are forbidden.
 * Empty folders are forbidden.
 
 ## JSON Format
