@@ -85,6 +85,23 @@ Requirements are stored under requirements/ using RN-based folders.
 
 All files MUST be ASCII YAML.
 
+### YAML Scalar Typing Rules
+
+Writers SHALL ensure that fields defined as strings are parsed by YAML as string scalars, not as implicit booleans, nulls, numbers, or date/time values.
+
+Rules:
+
+* The validator rejects implicit scalar coercions for string fields using error code yaml.scalar_coercion.
+* Authors SHOULD quote ambiguous scalar literals when used in string fields.
+* This applies to ruid, timestamp, text, rationale, scope, and refs.* list entries.
+
+Examples of ambiguous unquoted literals that SHALL be quoted when intended as strings:
+
+* true, false, yes, no, on, off
+* null, ~
+* 42, 3.14, 1e6
+* 2026-05-30, 2026-05-30T12:00:00Z
+
 ### Child-list file schema
 
 Each item in a child-list file MUST follow this schema:
@@ -104,6 +121,7 @@ Rules:
 * Every referenced RUID MUST exist.
 * refs.supersedes MUST only point to older requirements.
 * timestamp MUST be an ISO 8601 UTC instant using the form YYYY-MM-DDTHH:MM:SSZ.
+* Validator JSON output MUST include a stable error_code field per violation for machine processing.
 
 ## Example
 

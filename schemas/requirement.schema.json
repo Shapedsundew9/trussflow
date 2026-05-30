@@ -1,0 +1,75 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://trussflow.dev/schemas/requirement.schema.json",
+    "title": "Trussflow Requirement Entry",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "ruid": {
+            "type": "string",
+            "pattern": "^[sm][0-9A-Z]+[0-3][cpt]$"
+        },
+        "timestamp": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "text": {
+            "type": "string",
+            "minLength": 1
+        },
+        "rationale": {
+            "type": "string",
+            "minLength": 1
+        },
+        "scope": {
+            "type": "string",
+            "enum": [
+                "in",
+                "out"
+            ]
+        },
+        "refs": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "depends_on": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "pattern": "^[sm][0-9A-Z]+[0-3][cpt]$"
+                    },
+                    "default": []
+                },
+                "related_to": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "pattern": "^[sm][0-9A-Z]+[0-3][cpt]$"
+                    },
+                    "default": []
+                },
+                "supersedes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "pattern": "^[sm][0-9A-Z]+[0-3][cpt]$"
+                    },
+                    "default": []
+                }
+            },
+            "required": [
+                "depends_on",
+                "related_to",
+                "supersedes"
+            ]
+        }
+    },
+    "required": [
+        "ruid",
+        "timestamp",
+        "text",
+        "rationale",
+        "scope",
+        "refs"
+    ]
+}

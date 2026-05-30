@@ -22,3 +22,22 @@ Run the CLI:
 trussflow --version
 python -m trussflow --version
 ```
+
+Validate requirements (schema + hierarchy + cross-reference checks):
+
+```bash
+trussflow validate
+python -m trussflow validate
+```
+
+Validate a custom requirements directory:
+
+```bash
+trussflow validate path/to/requirements
+```
+
+Emit machine-readable output:
+
+```bash
+trussflow validate --json
+```
