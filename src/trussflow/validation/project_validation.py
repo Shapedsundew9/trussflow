@@ -19,6 +19,7 @@ from trussflow.validation.schema_validation import (
 )
 
 RUID_RE = re.compile(r"^([0-9A-Z]+)([0-3])([cpt])$")
+RN_RE = re.compile(r"^[0-9A-Z]+$")
 REQUIREMENT_MAY_RE = re.compile(r"\bmay\b", re.IGNORECASE)
 REF_KEYS = ("depends_on", "related_to", "supersedes")
 
@@ -224,13 +225,22 @@ def _validate_cross_references(
     records: list[RequirementRecord],
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    by_ruid = {record.parsed_ruid.raw: record for record in records}
+    by_rn = {record.parsed_ruid.rn: record for record in records}
+
+    def _to_rn(value: str) -> str | None:
+        parsed = ParsedRuid.from_string(value)
+        if parsed is not None:
+            return parsed.rn
+        if RN_RE.match(value):
+            return value
+        return None
 
     for record in records:
         current_ruid = record.parsed_ruid.raw
         for key in REF_KEYS:
             for ref in record.refs.get(key, []):
-                target = by_ruid.get(ref)
+                ref_rn = _to_rn(ref)
+                target = by_rn.get(ref_rn) if ref_rn is not None else None
                 if target is None:
                     issues.append(
                         ValidationIssue(
@@ -248,7 +258,7 @@ def _validate_cross_references(
                         ValidationIssue(
                             rule="refs.supersedes.older",
                             message=(
-                                f"Requirement {current_ruid} must be newer than superseded requirement {ref}."
+                                f"Requirement {current_ruid} must be newer than superseded requirement RN {target.parsed_ruid.rn}."
                             ),
                             file_path=str(record.file_path),
                             entry_index=record.entry_index,
@@ -491,6 +501,14 @@ def _validate_amendment_semantics(
     issues: list[ValidationIssue] = []
     by_rn = {record.parsed_ruid.rn: record for record in requirements_by_ruid.values()}
 
+    def _to_rn(value: str) -> str | None:
+        parsed = ParsedRuid.from_string(value)
+        if parsed is not None:
+            return parsed.rn
+        if RN_RE.match(value):
+            return value
+        return None
+
     def _has_immediate_child(rn: str) -> bool:
         return any(
             other.parsed_ruid.rn.startswith(rn)
@@ -506,6 +524,9 @@ def _validate_amendment_semantics(
 
     seen_amendment: set[str] = set()
     seen_new_ruids: set[str] = set(requirements_by_ruid)
+    seen_new_rns: set[str] = {
+        record.parsed_ruid.rn for record in requirements_by_ruid.values()
+    }
     for entry in amendment_entries:
         amendment_id = entry.get("amendment_id")
         file_path = str(entry.get("_file_path", ""))
@@ -608,6 +629,8 @@ def _validate_amendment_semantics(
                     )
                 else:
                     seen_new_ruids.add(new_ruid)
+                    if isinstance(new_parsed, ParsedRuid):
+                        seen_new_rns.add(new_parsed.rn)
 
                 if new_timestamp is None:
                     issues.append(
@@ -675,12 +698,20 @@ def _validate_amendment_semantics(
 
             if action == "supersede" and target is not None:
                 supersedes = change.get("supersedes", [])
-                if target_ruid not in supersedes:
+                supersedes_rns = []
+                if isinstance(supersedes, list):
+                    supersedes_rns = [
+                        rn
+                        for rn in (_to_rn(str(item)) for item in supersedes)
+                        if rn is not None
+                    ]
+
+                if target.parsed_ruid.rn not in supersedes_rns:
                     issues.append(
                         ValidationIssue(
                             rule="amendment.supersedes.target",
                             message=(
-                                f"Supersede change for '{target_ruid}' must include that RUID in supersedes[]."
+                                f"Supersede change for '{target_ruid}' must include its RN in supersedes[]."
                             ),
                             file_path=file_path,
                             entry_index=entry_index,
@@ -705,14 +736,19 @@ def _validate_amendment_semantics(
                     )
 
                 if isinstance(supersedes, list) and new_timestamp is not None:
-                    for superseded_ruid in supersedes:
-                        superseded_target = requirements_by_ruid.get(superseded_ruid)
+                    for superseded_ref in supersedes:
+                        superseded_rn = _to_rn(str(superseded_ref))
+                        superseded_target = (
+                            by_rn.get(superseded_rn)
+                            if superseded_rn is not None
+                            else None
+                        )
                         if superseded_target is None:
                             issues.append(
                                 ValidationIssue(
                                     rule="amendment.supersedes.exists",
                                     message=(
-                                        f"Supersede reference '{superseded_ruid}' does not exist in requirements baseline."
+                                        f"Supersede reference '{superseded_ref}' does not exist in requirements baseline."
                                     ),
                                     file_path=file_path,
                                     entry_index=entry_index,
@@ -726,7 +762,7 @@ def _validate_amendment_semantics(
                                     rule="amendment.supersedes.older",
                                     message=(
                                         f"Supersede new_timestamp must be later than superseded requirement "
-                                        f"'{superseded_ruid}' timestamp."
+                                        f"'{superseded_target.parsed_ruid.raw}' timestamp."
                                     ),
                                     file_path=file_path,
                                     entry_index=entry_index,
@@ -906,10 +942,8 @@ def _validate_amendment_semantics(
                 )
                 for key in REF_KEYS:
                     for ref in refs.get(key, []):
-                        if (
-                            ref not in seen_new_ruids
-                            and ref not in requirements_by_ruid
-                        ):
+                        ref_rn = _to_rn(str(ref))
+                        if ref_rn is None or ref_rn not in seen_new_rns:
                             issues.append(
                                 ValidationIssue(
                                     rule="amendment.refs.exists",

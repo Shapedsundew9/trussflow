@@ -65,6 +65,9 @@ Mechanical requirement creation commands (dry-run by default):
 RN allocation is automatic. For each parent RN, the next value is the first unused
 one-character extension in this order: `0-9`, then `A-Z`. For the root in an empty
 tree, the first RN is `0`. Root RL is fixed to `0`.
+Reference selectors for `--depends-on`, `--related-to`, `--supersedes`, and `--ref`
+can be provided as RN (for example `AB`) or full RUID (for example `AB1p`), but
+Trussflow always stores refs as RN only.
 
 ```bash
 trussflow requirement create-root \

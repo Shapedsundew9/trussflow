@@ -81,7 +81,7 @@ def test_project_validation_detects_missing_reference(tmp_path: Path) -> None:
                 "rationale": "This establishes hierarchy for validation.",
                 "scope": "in",
                 "refs": {
-                    "depends_on": ["ZZ1c"],
+                    "depends_on": ["ZZ"],
                     "related_to": [],
                     "supersedes": [],
                 },
@@ -341,7 +341,7 @@ def test_change_validation_detects_supersede_timestamp_not_newer(
                             "target_ruid": "AB1c",
                             "new_ruid": "AC1c",
                             "new_timestamp": "2026-05-30T12:09:00Z",
-                            "supersedes": ["AB1c"],
+                            "supersedes": ["AB"],
                             "new_state": {
                                 "text": "The system shall define measurable verification criteria.",
                                 "rationale": "Supersedes older requirement text.",
@@ -349,7 +349,7 @@ def test_change_validation_detects_supersede_timestamp_not_newer(
                                 "refs": {
                                     "depends_on": [],
                                     "related_to": [],
-                                    "supersedes": ["AB1c"],
+                                    "supersedes": ["AB"],
                                 },
                             },
                         }

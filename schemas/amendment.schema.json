@@ -78,7 +78,7 @@
                             "type": "array",
                             "items": {
                                 "type": "string",
-                                "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                                "pattern": "^[0-9A-Z]+$"
                             }
                         },
                         "new_state": {
@@ -116,21 +116,21 @@
                                             "type": "array",
                                             "items": {
                                                 "type": "string",
-                                                "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                                                "pattern": "^[0-9A-Z]+$"
                                             }
                                         },
                                         "related_to": {
                                             "type": "array",
                                             "items": {
                                                 "type": "string",
-                                                "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                                                "pattern": "^[0-9A-Z]+$"
                                             }
                                         },
                                         "supersedes": {
                                             "type": "array",
                                             "items": {
                                                 "type": "string",
-                                                "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                                                "pattern": "^[0-9A-Z]+$"
                                             }
                                         }
                                     },

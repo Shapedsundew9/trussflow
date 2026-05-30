@@ -36,7 +36,7 @@
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                        "pattern": "^[0-9A-Z]+$"
                     },
                     "default": []
                 },
@@ -44,7 +44,7 @@
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                        "pattern": "^[0-9A-Z]+$"
                     },
                     "default": []
                 },
@@ -52,7 +52,7 @@
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                        "pattern": "^[0-9A-Z]+$"
                     },
                     "default": []
                 }

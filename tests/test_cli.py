@@ -507,6 +507,94 @@ def test_cli_requirement_create_child_apply_writes_file(
     assert doc["scope"] == "in"
 
 
+def test_cli_requirement_create_child_accepts_all_ref_types(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-child",
+            "A",
+            "--rl",
+            "1",
+            "--rs",
+            "p",
+            "--text",
+            "The system shall define another child requirement.",
+            "--rationale",
+            "Covers additional scope.",
+            "--scope",
+            "in",
+            "--depends-on",
+            "A",
+            "--related-to",
+            "AB1p",
+            "--ref",
+            "supersedes:AB",
+            "--apply",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+
+    written_path = tmp_path / "requirements" / "A" / "A01p.json"
+    doc = json.loads(written_path.read_text(encoding="ascii"))
+    assert doc["refs"]["depends_on"] == ["A"]
+    assert doc["refs"]["related_to"] == ["AB"]
+    assert doc["refs"]["supersedes"] == ["AB"]
+
+
+def test_cli_requirement_create_sibling_accepts_generic_ref_arg(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-sibling",
+            "AB",
+            "--rl",
+            "1",
+            "--rs",
+            "p",
+            "--text",
+            "The system shall define a sibling requirement.",
+            "--rationale",
+            "Extends sibling coverage.",
+            "--scope",
+            "in",
+            "--ref",
+            "depends_on=A0c",
+            "--ref",
+            "related_to:AB",
+            "--ref",
+            "supersedes=AB1c",
+            "--apply",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+
+    written_path = tmp_path / "requirements" / "A" / "A01p.json"
+    doc = json.loads(written_path.read_text(encoding="ascii"))
+    assert doc["refs"]["depends_on"] == ["A"]
+    assert doc["refs"]["related_to"] == ["AB"]
+    assert doc["refs"]["supersedes"] == ["AB"]
+
+
 def test_cli_requirement_create_sibling_exhausted_has_guidance(
     tmp_path: Path, monkeypatch, capsys
 ):

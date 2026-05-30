@@ -90,13 +90,13 @@ Each requirement file shall contain one JSON object with this schema:
 * rationale: string, required, concise justification for the requirement
 * scope: enum, required, one of [in, out]
 * refs: object, required
-* refs.depends_on: array of RUID strings, optional, default []
-* refs.related_to: array of RUID strings, optional, default []
-* refs.supersedes: array of RUID strings, optional, default []
+* refs.depends_on: array of RN strings, optional, default []
+* refs.related_to: array of RN strings, optional, default []
+* refs.supersedes: array of RN strings, optional, default []
 
 Rules:
 
-* Every referenced RUID shall exist.
+* Every referenced RN shall exist.
 * refs.supersedes shall only point to older requirements.
 * timestamp shall be an ISO 8601 UTC instant using the form YYYY-MM-DDTHH:MM:SSZ.
 * Validator JSON output shall include a stable error_code field per violation for machine processing.
@@ -113,8 +113,8 @@ Example file requirements/A/AB1c.json:
   "rationale": "Early validation prevents invalid requirements from entering the baseline.",
   "scope": "in",
   "refs": {
-    "depends_on": ["AA1c"],
-    "related_to": ["XZ2p"],
+    "depends_on": ["AA"],
+    "related_to": ["XZ"],
     "supersedes": []
   }
 }
@@ -131,5 +131,5 @@ Only the terms in this glossary shall be used with normative meaning.
 * Leaf: A requirement with no children.
 * Requirement Level (RL): Decomposition stage token in RUID in the range 0-3; independent of hierarchy depth.
 * Scope: Inclusion status of a requirement, either in or out.
-* Cross-reference: A typed link in refs to another requirement.
+* Cross-reference: A typed link in refs to another requirement RN.
 * Supersedes: A replacement relation from a newer requirement to an older one.

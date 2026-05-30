@@ -262,13 +262,87 @@ def _make_requirement_payload(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _collect_raw_refs(
+    args: argparse.Namespace,
+) -> tuple[dict[str, list[str]], list[ValidationIssue]]:
+    refs: dict[str, list[str]] = {
+        "depends_on": list(args.depends_on or []),
+        "related_to": list(args.related_to or []),
+        "supersedes": list(args.supersedes or []),
+    }
+    issues: list[ValidationIssue] = []
+
+    for item in list(getattr(args, "refs", []) or []):
+        key: str | None = None
+        value: str | None = None
+        if ":" in item:
+            key, value = item.split(":", 1)
+        elif "=" in item:
+            key, value = item.split("=", 1)
+
+        key = (key or "").strip()
+        value = (value or "").strip()
+
+        if key not in REF_KEYS or not value:
+            issues.append(
+                _issue(
+                    "refs.arg",
+                    (
+                        "Ref must be '<type>:<selector>' or '<type>=<selector>' "
+                        "with type in depends_on, related_to, supersedes."
+                    ),
+                )
+            )
+            continue
+
+        refs[key].append(value)
+
+    return refs, issues
+
+
+def _resolve_ref_selectors(
+    raw_refs: dict[str, list[str]],
+    *,
+    by_rn: dict[str, RequirementDoc],
+) -> tuple[dict[str, list[str]], list[ValidationIssue]]:
+    resolved: dict[str, list[str]] = {key: [] for key in REF_KEYS}
+    issues: list[ValidationIssue] = []
+
+    for key in REF_KEYS:
+        for selector in raw_refs.get(key, []):
+            rn = _resolve_rn_selector(selector, by_rn=by_rn)
+            if rn is None:
+                issues.append(
+                    _issue(
+                        "refs.parse",
+                        f"Reference '{selector}' in refs.{key} must be RN or full RUID.",
+                    )
+                )
+                continue
+
+            target = by_rn.get(rn)
+            if target is None:
+                issues.append(
+                    _issue(
+                        "refs.exists",
+                        f"Reference '{selector}' in refs.{key} does not exist.",
+                    )
+                )
+                continue
+
+            if rn not in resolved[key]:
+                resolved[key].append(rn)
+
+    return resolved, issues
+
+
 def _validate_refs_exist(
-    refs: dict[str, list[str]], by_ruid: dict[str, RequirementDoc]
+    refs: dict[str, list[str]], by_rn: dict[str, RequirementDoc]
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for key in REF_KEYS:
         for ref in refs.get(key, []):
-            if ref not in by_ruid:
+            if ref not in by_rn:
                 issues.append(
                     _issue(
                         "refs.exists",
@@ -285,7 +359,6 @@ def _validate_proposed_requirement(
     child_rs: str,
     child_refs: dict[str, list[str]],
     child_timestamp: str,
-    by_ruid: dict[str, RequirementDoc],
     by_rn: dict[str, RequirementDoc],
 ) -> tuple[list[ValidationIssue], list[ValidationIssue]]:
     warnings: list[ValidationIssue] = []
@@ -330,7 +403,7 @@ def _validate_proposed_requirement(
                 )
             )
 
-    ref_issues = _validate_refs_exist(child_refs, by_ruid)
+    ref_issues = _validate_refs_exist(child_refs, by_rn)
     errors.extend(ref_issues)
 
     child_ts = _parse_timestamp(child_timestamp)
@@ -342,8 +415,8 @@ def _validate_proposed_requirement(
             )
         )
     else:
-        for superseded_ruid in child_refs.get("supersedes", []):
-            superseded = by_ruid.get(superseded_ruid)
+        for superseded_rn in child_refs.get("supersedes", []):
+            superseded = by_rn.get(superseded_rn)
             if superseded is None:
                 continue
             superseded_ts = _parse_timestamp(superseded.data.get("timestamp"))
@@ -354,7 +427,7 @@ def _validate_proposed_requirement(
                     _issue(
                         "refs.supersedes.older",
                         (
-                            f"New requirement must be newer than superseded requirement {superseded_ruid}."
+                            f"New requirement must be newer than superseded requirement RN {superseded_rn}."
                         ),
                     )
                 )
@@ -401,6 +474,16 @@ def _requirement_create_root(args: argparse.Namespace) -> int:
             )
 
     payload = _make_requirement_payload(args)
+    raw_refs, ref_arg_issues = _collect_raw_refs(args)
+    payload["refs"] = raw_refs
+
+    if ref_arg_issues:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command="requirement create-root",
+            errors=ref_arg_issues,
+        )
     next_root_rn = _next_child_rn("", set())
     if next_root_rn is None:
         return _output(
@@ -420,7 +503,8 @@ def _requirement_create_root(args: argparse.Namespace) -> int:
     warnings: list[ValidationIssue] = []
     errors: list[ValidationIssue] = []
 
-    ref_issues = _validate_refs_exist(payload["refs"], by_ruid={})
+    resolved_refs, ref_issues = _resolve_ref_selectors(payload["refs"], by_rn={})
+    payload["refs"] = resolved_refs
     errors.extend(ref_issues)
 
     if re.search(r"\bmay\b", str(payload.get("text", "")), re.IGNORECASE):
@@ -621,7 +705,7 @@ def _requirement_inspect(args: argparse.Namespace) -> int:
             errors=issues,
         )
 
-    by_ruid, by_rn, children_by_rn = _build_indexes(docs)
+    _, by_rn, children_by_rn = _build_indexes(docs)
     target, resolve_issue = _resolve_requirement(args.ruid, by_rn=by_rn)
     if resolve_issue is not None:
         return _output(
@@ -665,7 +749,8 @@ def _requirement_inspect(args: argparse.Namespace) -> int:
         for key in REF_KEYS:
             resolved[key] = []
             for ref in refs.get(key, []):
-                ref_doc = by_ruid.get(ref)
+                ref_rn = _resolve_rn_selector(ref, by_rn=by_rn)
+                ref_doc = by_rn.get(ref_rn) if ref_rn is not None else None
                 if ref_doc is not None:
                     resolved[key].append(ref_doc.data)
         bundle["resolved_refs"] = resolved
@@ -688,7 +773,7 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
             errors=issues,
         )
 
-    by_ruid, by_rn, _ = _build_indexes(docs)
+    _, by_rn, _ = _build_indexes(docs)
     anchor, resolve_issue = _resolve_requirement(args.anchor_ruid, by_rn=by_rn)
     if resolve_issue is not None:
         return _output(
@@ -730,6 +815,23 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
         parent_rn = parent.rn
 
     payload = _make_requirement_payload(args)
+    raw_refs, ref_arg_issues = _collect_raw_refs(args)
+    if ref_arg_issues:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command=f"requirement {mode}",
+            errors=ref_arg_issues,
+        )
+    resolved_refs, ref_issues = _resolve_ref_selectors(raw_refs, by_rn=by_rn)
+    payload["refs"] = resolved_refs
+    if ref_issues:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command=f"requirement {mode}",
+            errors=ref_issues,
+        )
 
     used_rns = set(by_rn)
     new_rn = _next_child_rn(parent_rn, used_rns)
@@ -755,7 +857,6 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
         child_rs=args.rs,
         child_refs=payload["refs"],
         child_timestamp=str(payload["timestamp"]),
-        by_ruid=by_ruid,
         by_rn=by_rn,
     )
 
@@ -1015,21 +1116,31 @@ def build_parser() -> argparse.ArgumentParser:
             dest="depends_on",
             action="append",
             default=[],
-            help="Add a refs.depends_on RUID. Can be repeated.",
+            help="Add a refs.depends_on selector (RN or RUID). Stored as RN. Can be repeated.",
         )
         parser.add_argument(
             "--related-to",
             dest="related_to",
             action="append",
             default=[],
-            help="Add a refs.related_to RUID. Can be repeated.",
+            help="Add a refs.related_to selector (RN or RUID). Stored as RN. Can be repeated.",
         )
         parser.add_argument(
             "--supersedes",
             dest="supersedes",
             action="append",
             default=[],
-            help="Add a refs.supersedes RUID. Can be repeated.",
+            help="Add a refs.supersedes selector (RN or RUID). Stored as RN. Can be repeated.",
+        )
+        parser.add_argument(
+            "--ref",
+            dest="refs",
+            action="append",
+            default=[],
+            help=(
+                "Add a ref as '<type>:<selector>' or '<type>=<selector>' where type "
+                "is depends_on, related_to, or supersedes. Can be repeated."
+            ),
         )
         parser.add_argument(
             "--apply",
@@ -1072,21 +1183,31 @@ def build_parser() -> argparse.ArgumentParser:
             dest="depends_on",
             action="append",
             default=[],
-            help="Add a refs.depends_on RUID. Can be repeated.",
+            help="Add a refs.depends_on selector (RN or RUID). Stored as RN. Can be repeated.",
         )
         parser.add_argument(
             "--related-to",
             dest="related_to",
             action="append",
             default=[],
-            help="Add a refs.related_to RUID. Can be repeated.",
+            help="Add a refs.related_to selector (RN or RUID). Stored as RN. Can be repeated.",
         )
         parser.add_argument(
             "--supersedes",
             dest="supersedes",
             action="append",
             default=[],
-            help="Add a refs.supersedes RUID. Can be repeated.",
+            help="Add a refs.supersedes selector (RN or RUID). Stored as RN. Can be repeated.",
+        )
+        parser.add_argument(
+            "--ref",
+            dest="refs",
+            action="append",
+            default=[],
+            help=(
+                "Add a ref as '<type>:<selector>' or '<type>=<selector>' where type "
+                "is depends_on, related_to, or supersedes. Can be repeated."
+            ),
         )
         parser.add_argument(
             "--apply",
