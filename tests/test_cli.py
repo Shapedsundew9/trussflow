@@ -381,8 +381,6 @@ def test_cli_requirement_create_root_dry_run(tmp_path: Path, monkeypatch, capsys
         [
             "requirement",
             "create-root",
-            "--rl",
-            "0",
             "--rs",
             "p",
             "--text",
@@ -413,8 +411,6 @@ def test_cli_requirement_create_root_apply_writes_root_file(
         [
             "requirement",
             "create-root",
-            "--rl",
-            "0",
             "--rs",
             "p",
             "--text",
@@ -452,8 +448,6 @@ def test_cli_requirement_create_root_fails_if_tree_exists(
         [
             "requirement",
             "create-root",
-            "--rl",
-            "0",
             "--rs",
             "p",
             "--text",

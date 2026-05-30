@@ -415,7 +415,7 @@ def _requirement_create_root(args: argparse.Namespace) -> int:
             ],
         )
 
-    payload["ruid"] = f"{next_root_rn}{args.rl}{args.rs}"
+    payload["ruid"] = f"{next_root_rn}0{args.rs}"
 
     warnings: list[ValidationIssue] = []
     errors: list[ValidationIssue] = []
@@ -1050,13 +1050,6 @@ def build_parser() -> argparse.ArgumentParser:
             help="Path to requirements directory. Defaults to ./requirements.",
         )
         parser.add_argument(
-            "--rl",
-            type=int,
-            choices=[0, 1, 2, 3],
-            required=True,
-            help="RL value for root requirement.",
-        )
-        parser.add_argument(
             "--rs",
             choices=["c", "p", "t"],
             required=True,
@@ -1111,7 +1104,7 @@ def build_parser() -> argparse.ArgumentParser:
         "create-root",
         help=(
             "Create the initial root requirement in an empty requirements tree; "
-            "RN is auto-assigned from 0-9 then A-Z (first root RN is 0)."
+            "RN is auto-assigned from 0-9 then A-Z (first root RN is 0) and RL is always 0."
         ),
     )
     _add_root_create_arguments(create_root_parser)

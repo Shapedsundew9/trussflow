@@ -64,11 +64,11 @@ Mechanical requirement creation commands (dry-run by default):
 
 RN allocation is automatic. For each parent RN, the next value is the first unused
 one-character extension in this order: `0-9`, then `A-Z`. For the root in an empty
-tree, the first RN is `0`.
+tree, the first RN is `0`. Root RL is fixed to `0`.
 
 ```bash
 trussflow requirement create-root \
- --rl 0 --rs p \
+ --rs p \
  --text "The product shall ..." \
  --rationale "..." \
  --scope in \
