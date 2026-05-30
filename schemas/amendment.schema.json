@@ -60,15 +60,15 @@
                         },
                         "target_ruid": {
                             "type": "string",
-                            "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                            "pattern": "^[0-9A-Z]+$"
                         },
                         "parent_ruid": {
                             "type": "string",
-                            "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                            "pattern": "^[0-9A-Z]+$"
                         },
                         "new_ruid": {
                             "type": "string",
-                            "pattern": "^[0-9A-Z]+[0-3][cpt]$"
+                            "pattern": "^[0-9A-Z]+$"
                         },
                         "new_timestamp": {
                             "type": "string",
@@ -99,6 +99,11 @@
                                         "in",
                                         "out"
                                     ]
+                                },
+                                "rl": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 3
                                 },
                                 "rs": {
                                     "type": "string",
@@ -162,7 +167,19 @@
                                     "new_ruid",
                                     "new_timestamp",
                                     "new_state"
-                                ]
+                                ],
+                                "properties": {
+                                    "new_state": {
+                                        "required": [
+                                            "text",
+                                            "rationale",
+                                            "scope",
+                                            "rl",
+                                            "rs",
+                                            "refs"
+                                        ]
+                                    }
+                                }
                             }
                         },
                         {
@@ -184,6 +201,16 @@
                                 "properties": {
                                     "supersedes": {
                                         "minItems": 1
+                                    },
+                                    "new_state": {
+                                        "required": [
+                                            "text",
+                                            "rationale",
+                                            "scope",
+                                            "rl",
+                                            "rs",
+                                            "refs"
+                                        ]
                                     }
                                 }
                             }

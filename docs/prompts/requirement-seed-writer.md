@@ -34,3 +34,4 @@ If a value is uncertain, prefer a best estimate with explicit rationale instead 
 2. Extract explicit needs, constraints, and exclusions.
 3. Build a requirement hierarchy from high-level to deeper levels only where justified.
 4. Write concise text and rationale for each requirement.
+5. Set explicit `rl` and `rs` fields for each requirement.

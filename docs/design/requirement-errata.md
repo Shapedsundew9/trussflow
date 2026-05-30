@@ -26,7 +26,7 @@ Rules:
 
 * `solutions` has a maximum of three options per errata entry.
 * each solution contains `solution_id`, `action_type`, and `description`.
-* all RUID values must match `[0-9A-Z]+[0-3][cpt]`.
+* all RUID values must match `[0-9A-Z]+`.
 
 ## Amendment Contract
 

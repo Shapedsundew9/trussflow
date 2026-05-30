@@ -18,35 +18,17 @@ from trussflow.validation.schema_validation import (
     validate_requirement_file,
 )
 
-RUID_RE = re.compile(r"^([0-9A-Z]+)([0-3])([cpt])$")
-RN_RE = re.compile(r"^[0-9A-Z]+$")
 REQUIREMENT_MAY_RE = re.compile(r"\bmay\b", re.IGNORECASE)
 REF_KEYS = ("depends_on", "related_to", "supersedes")
-
-
-@dataclass(slots=True)
-class ParsedRuid:
-    """RUID decomposition helper."""
-
-    raw: str
-    rn: str
-    rl: int
-    rs: str
-
-    @classmethod
-    def from_string(cls, value: str) -> "ParsedRuid | None":
-        match = RUID_RE.match(value)
-        if not match:
-            return None
-        rn, rl, rs = match.groups()
-        return cls(raw=value, rn=rn, rl=int(rl), rs=rs)
 
 
 @dataclass(slots=True)
 class RequirementRecord:
     """Normalized requirement entry for semantic validation."""
 
-    parsed_ruid: ParsedRuid
+    ruid: str
+    rl: int
+    rs: str
     timestamp: datetime
     text: str
     refs: dict[str, list[str]]
@@ -76,18 +58,6 @@ def _collect_records(
 
         for idx, entry in enumerate(entries):
             ruid_value = entry["ruid"]
-            parsed = ParsedRuid.from_string(ruid_value)
-            if parsed is None:
-                issues.append(
-                    ValidationIssue(
-                        rule="ruid.parse",
-                        message=f"Unable to parse RUID '{ruid_value}'.",
-                        file_path=str(file_path),
-                        entry_index=idx,
-                    )
-                )
-                continue
-
             timestamp = _parse_timestamp(entry["timestamp"])
             if timestamp is None:
                 issues.append(
@@ -106,7 +76,9 @@ def _collect_records(
 
             records.append(
                 RequirementRecord(
-                    parsed_ruid=parsed,
+                    ruid=ruid_value,
+                    rl=int(entry["rl"]),
+                    rs=str(entry["rs"]),
                     timestamp=timestamp,
                     text=entry["text"],
                     refs=normalized_refs,
@@ -118,28 +90,30 @@ def _collect_records(
     return records, issues
 
 
-def _validate_rn_uniqueness(records: list[RequirementRecord]) -> list[ValidationIssue]:
+def _validate_ruid_uniqueness(
+    records: list[RequirementRecord],
+) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     seen: dict[str, RequirementRecord] = {}
 
     for record in records:
-        rn = record.parsed_ruid.rn
-        if rn in seen:
-            original = seen[rn]
+        ruid = record.ruid
+        if ruid in seen:
+            original = seen[ruid]
             issues.append(
                 ValidationIssue(
-                    rule="rn.unique",
+                    rule="ruid.unique",
                     message=(
-                        f"RN '{rn}' is duplicated by {record.parsed_ruid.raw} and "
-                        f"{original.parsed_ruid.raw}."
+                        f"RUID '{ruid}' is duplicated in requirement files "
+                        f"'{record.file_path}' and '{original.file_path}'."
                     ),
                     file_path=str(record.file_path),
                     entry_index=record.entry_index,
-                    ruid=record.parsed_ruid.raw,
+                    ruid=record.ruid,
                 )
             )
             continue
-        seen[rn] = record
+        seen[ruid] = record
 
     return issues
 
@@ -148,44 +122,43 @@ def _validate_hierarchy_and_state(
     records: list[RequirementRecord],
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    by_rn = {record.parsed_ruid.rn: record for record in records}
+    by_ruid = {record.ruid: record for record in records}
 
     for record in records:
-        parsed = record.parsed_ruid
-        parent_rn = parsed.rn[:-1]
-        if parent_rn and parent_rn in by_rn:
-            parent = by_rn[parent_rn].parsed_ruid
-            if parsed.rl < parent.rl:
+        parent_ruid = record.ruid[:-1]
+        if parent_ruid and parent_ruid in by_ruid:
+            parent = by_ruid[parent_ruid]
+            if record.rl < parent.rl:
                 issues.append(
                     ValidationIssue(
                         rule="rl.monotonic",
                         message=(
-                            f"Child RL must be >= parent RL. Parent {parent.raw} has RL {parent.rl}, "
-                            f"child {parsed.raw} has RL {parsed.rl}."
+                            f"Child RL must be >= parent RL. Parent {parent.ruid} has RL {parent.rl}, "
+                            f"child {record.ruid} has RL {record.rl}."
                         ),
                         file_path=str(record.file_path),
                         entry_index=record.entry_index,
-                        ruid=parsed.raw,
+                        ruid=record.ruid,
                     )
                 )
-            if parent.rs == "p" and parsed.rs != "p":
+            if parent.rs == "p" and record.rs != "p":
                 issues.append(
                     ValidationIssue(
                         rule="rs.propagation",
                         message=(
-                            f"Descendant {parsed.raw} must keep state 'p' because parent {parent.raw} is proposed."
+                            f"Descendant {record.ruid} must keep state 'p' because parent {parent.ruid} is proposed."
                         ),
                         file_path=str(record.file_path),
                         entry_index=record.entry_index,
-                        ruid=parsed.raw,
+                        ruid=record.ruid,
                     )
                 )
 
-        if parsed.rl == 3:
+        if record.rl == 3:
             has_eligible_ancestor = False
-            for length in range(len(parsed.rn) - 1, 0, -1):
-                ancestor = by_rn.get(parsed.rn[:length])
-                if ancestor and ancestor.parsed_ruid.rl in (0, 1, 2):
+            for length in range(len(record.ruid) - 1, 0, -1):
+                ancestor = by_ruid.get(record.ruid[:length])
+                if ancestor and ancestor.rl in (0, 1, 2):
                     has_eligible_ancestor = True
                     break
             if not has_eligible_ancestor:
@@ -193,28 +166,28 @@ def _validate_hierarchy_and_state(
                     ValidationIssue(
                         rule="rl.ancestor",
                         message=(
-                            f"Requirement {parsed.raw} with RL=3 must have an ancestor with RL in [0,1,2]."
+                            f"Requirement {record.ruid} with RL=3 must have an ancestor with RL in [0,1,2]."
                         ),
                         file_path=str(record.file_path),
                         entry_index=record.entry_index,
-                        ruid=parsed.raw,
+                        ruid=record.ruid,
                     )
                 )
 
-        if parsed.rs == "t":
+        if record.rs == "t":
             has_child = any(
-                other.parsed_ruid.rn.startswith(parsed.rn)
-                and len(other.parsed_ruid.rn) == len(parsed.rn) + 1
+                other.ruid.startswith(record.ruid)
+                and len(other.ruid) == len(record.ruid) + 1
                 for other in records
             )
             if has_child:
                 issues.append(
                     ValidationIssue(
                         rule="rs.leaf",
-                        message=f"Requirement {parsed.raw} with RS='t' must be a leaf.",
+                        message=f"Requirement {record.ruid} with RS='t' must be a leaf.",
                         file_path=str(record.file_path),
                         entry_index=record.entry_index,
-                        ruid=parsed.raw,
+                        ruid=record.ruid,
                     )
                 )
 
@@ -225,22 +198,13 @@ def _validate_cross_references(
     records: list[RequirementRecord],
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    by_rn = {record.parsed_ruid.rn: record for record in records}
-
-    def _to_rn(value: str) -> str | None:
-        parsed = ParsedRuid.from_string(value)
-        if parsed is not None:
-            return parsed.rn
-        if RN_RE.match(value):
-            return value
-        return None
+    by_ruid = {record.ruid: record for record in records}
 
     for record in records:
-        current_ruid = record.parsed_ruid.raw
+        current_ruid = record.ruid
         for key in REF_KEYS:
             for ref in record.refs.get(key, []):
-                ref_rn = _to_rn(ref)
-                target = by_rn.get(ref_rn) if ref_rn is not None else None
+                target = by_ruid.get(ref)
                 if target is None:
                     issues.append(
                         ValidationIssue(
@@ -258,7 +222,7 @@ def _validate_cross_references(
                         ValidationIssue(
                             rule="refs.supersedes.older",
                             message=(
-                                f"Requirement {current_ruid} must be newer than superseded requirement RN {target.parsed_ruid.rn}."
+                                f"Requirement {current_ruid} must be newer than superseded requirement RUID {target.ruid}."
                             ),
                             file_path=str(record.file_path),
                             entry_index=record.entry_index,
@@ -280,12 +244,12 @@ def _validate_requirement_language(
                 ValidationIssue(
                     rule="text.normative_may",
                     message=(
-                        f"Requirement {record.parsed_ruid.raw} uses 'may' in requirement text; "
+                        f"Requirement {record.ruid} uses 'may' in requirement text; "
                         "use 'shall' for requirements per NASA guidance."
                     ),
                     file_path=str(record.file_path),
                     entry_index=record.entry_index,
-                    ruid=record.parsed_ruid.raw,
+                    ruid=record.ruid,
                 )
             )
 
@@ -307,25 +271,25 @@ def _validate_storage_model(
                 )
             )
 
-    by_rn = {record.parsed_ruid.rn: record for record in records}
+    by_ruid = {record.ruid: record for record in records}
     for folder in sorted(path for path in requirements_dir.rglob("*") if path.is_dir()):
         if folder == requirements_dir:
             continue
-        folder_rn = folder.name
-        owner = by_rn.get(folder_rn)
+        folder_ruid = folder.name
+        owner = by_ruid.get(folder_ruid)
         if owner is None:
             issues.append(
                 ValidationIssue(
                     rule="storage.folder_owner",
-                    message=f"Folder '{folder}' does not match any existing requirement RN.",
+                    message=f"Folder '{folder}' does not match any existing requirement RUID.",
                     file_path=str(folder),
                 )
             )
             continue
 
         owner_has_children = any(
-            other.parsed_ruid.rn.startswith(folder_rn)
-            and len(other.parsed_ruid.rn) == len(folder_rn) + 1
+            other.ruid.startswith(folder_ruid)
+            and len(other.ruid) == len(folder_ruid) + 1
             for other in records
         )
         if not owner_has_children:
@@ -333,10 +297,10 @@ def _validate_storage_model(
                 ValidationIssue(
                     rule="storage.folder_children",
                     message=(
-                        f"Folder '{folder}' exists but requirement {owner.parsed_ruid.raw} has no children."
+                        f"Folder '{folder}' exists but requirement {owner.ruid} has no children."
                     ),
                     file_path=str(folder),
-                    ruid=owner.parsed_ruid.raw,
+                    ruid=owner.ruid,
                 )
             )
 
@@ -379,7 +343,7 @@ def validate_requirements_tree(
             )
         ]
 
-    issues.extend(_validate_rn_uniqueness(records))
+    issues.extend(_validate_ruid_uniqueness(records))
     issues.extend(_validate_hierarchy_and_state(records))
     issues.extend(_validate_cross_references(records))
     issues.extend(_validate_requirement_language(records))
@@ -499,20 +463,10 @@ def _validate_amendment_semantics(
     errata_entries: list[dict[str, Any]],
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    by_rn = {record.parsed_ruid.rn: record for record in requirements_by_ruid.values()}
 
-    def _to_rn(value: str) -> str | None:
-        parsed = ParsedRuid.from_string(value)
-        if parsed is not None:
-            return parsed.rn
-        if RN_RE.match(value):
-            return value
-        return None
-
-    def _has_immediate_child(rn: str) -> bool:
+    def _has_immediate_child(ruid: str) -> bool:
         return any(
-            other.parsed_ruid.rn.startswith(rn)
-            and len(other.parsed_ruid.rn) == len(rn) + 1
+            other.ruid.startswith(ruid) and len(other.ruid) == len(ruid) + 1
             for other in requirements_by_ruid.values()
         )
 
@@ -524,9 +478,6 @@ def _validate_amendment_semantics(
 
     seen_amendment: set[str] = set()
     seen_new_ruids: set[str] = set(requirements_by_ruid)
-    seen_new_rns: set[str] = {
-        record.parsed_ruid.rn for record in requirements_by_ruid.values()
-    }
     for entry in amendment_entries:
         amendment_id = entry.get("amendment_id")
         file_path = str(entry.get("_file_path", ""))
@@ -603,12 +554,11 @@ def _validate_amendment_semantics(
             new_ruid = change.get("new_ruid")
             new_timestamp_raw = change.get("new_timestamp")
             new_timestamp = _parse_timestamp(new_timestamp_raw)
-            new_parsed = (
-                ParsedRuid.from_string(new_ruid) if isinstance(new_ruid, str) else None
-            )
+            new_rl = new_state.get("rl")
+            new_rs = new_state.get("rs")
 
             if action in {"create", "supersede"}:
-                if not isinstance(new_ruid, str) or new_parsed is None:
+                if not isinstance(new_ruid, str):
                     issues.append(
                         ValidationIssue(
                             rule="amendment.new_ruid.parse",
@@ -629,8 +579,6 @@ def _validate_amendment_semantics(
                     )
                 else:
                     seen_new_ruids.add(new_ruid)
-                    if isinstance(new_parsed, ParsedRuid):
-                        seen_new_rns.add(new_parsed.rn)
 
                 if new_timestamp is None:
                     issues.append(
@@ -681,7 +629,7 @@ def _validate_amendment_semantics(
                     "ref_update",
                     "move_hierarchy",
                 }
-                and target.parsed_ruid.rs == "c"
+                and target.rs == "c"
             ):
                 issues.append(
                     ValidationIssue(
@@ -698,20 +646,18 @@ def _validate_amendment_semantics(
 
             if action == "supersede" and target is not None:
                 supersedes = change.get("supersedes", [])
-                supersedes_rns = []
-                if isinstance(supersedes, list):
-                    supersedes_rns = [
-                        rn
-                        for rn in (_to_rn(str(item)) for item in supersedes)
-                        if rn is not None
-                    ]
+                supersedes_ruids = (
+                    [str(item) for item in supersedes]
+                    if isinstance(supersedes, list)
+                    else []
+                )
 
-                if target.parsed_ruid.rn not in supersedes_rns:
+                if target.ruid not in supersedes_ruids:
                     issues.append(
                         ValidationIssue(
                             rule="amendment.supersedes.target",
                             message=(
-                                f"Supersede change for '{target_ruid}' must include its RN in supersedes[]."
+                                f"Supersede change for '{target_ruid}' must include the target RUID in supersedes[]."
                             ),
                             file_path=file_path,
                             entry_index=entry_index,
@@ -719,15 +665,12 @@ def _validate_amendment_semantics(
                         )
                     )
 
-                if (
-                    isinstance(new_parsed, ParsedRuid)
-                    and new_parsed.rn == target.parsed_ruid.rn
-                ):
+                if isinstance(new_ruid, str) and new_ruid == target.ruid:
                     issues.append(
                         ValidationIssue(
-                            rule="amendment.supersede.rn_new",
+                            rule="amendment.supersede.ruid_new",
                             message=(
-                                f"Supersede change for '{target_ruid}' must use a new RN in new_ruid."
+                                f"Supersede change for '{target_ruid}' must use a new RUID in new_ruid."
                             ),
                             file_path=file_path,
                             entry_index=entry_index,
@@ -737,12 +680,8 @@ def _validate_amendment_semantics(
 
                 if isinstance(supersedes, list) and new_timestamp is not None:
                     for superseded_ref in supersedes:
-                        superseded_rn = _to_rn(str(superseded_ref))
-                        superseded_target = (
-                            by_rn.get(superseded_rn)
-                            if superseded_rn is not None
-                            else None
-                        )
+                        superseded_ruid = str(superseded_ref)
+                        superseded_target = requirements_by_ruid.get(superseded_ruid)
                         if superseded_target is None:
                             issues.append(
                                 ValidationIssue(
@@ -762,7 +701,7 @@ def _validate_amendment_semantics(
                                     rule="amendment.supersedes.older",
                                     message=(
                                         f"Supersede new_timestamp must be later than superseded requirement "
-                                        f"'{superseded_target.parsed_ruid.raw}' timestamp."
+                                        f"'{superseded_target.ruid}' timestamp."
                                     ),
                                     file_path=file_path,
                                     entry_index=entry_index,
@@ -786,7 +725,7 @@ def _validate_amendment_semantics(
 
                 if isinstance(parent_ruid, str) and parent_ruid in requirements_by_ruid:
                     parent = requirements_by_ruid[parent_ruid]
-                    if parent.parsed_ruid.rs == "t":
+                    if parent.rs == "t":
                         issues.append(
                             ValidationIssue(
                                 rule="amendment.create.parent_leaf",
@@ -799,56 +738,75 @@ def _validate_amendment_semantics(
                             )
                         )
 
-                    if isinstance(new_parsed, ParsedRuid):
+                    if isinstance(new_ruid, str):
                         if not (
-                            new_parsed.rn.startswith(parent.parsed_ruid.rn)
-                            and len(new_parsed.rn) == len(parent.parsed_ruid.rn) + 1
+                            new_ruid.startswith(parent.ruid)
+                            and len(new_ruid) == len(parent.ruid) + 1
                         ):
                             issues.append(
                                 ValidationIssue(
                                     rule="amendment.create.hierarchy",
                                     message=(
-                                        f"Create change new_ruid '{new_parsed.raw}' must be a direct child of "
+                                        f"Create change new_ruid '{new_ruid}' must be a direct child of "
                                         f"parent '{parent_ruid}'."
                                     ),
                                     file_path=file_path,
                                     entry_index=entry_index,
-                                    ruid=new_parsed.raw,
+                                    ruid=new_ruid,
                                 )
                             )
 
-                        if new_parsed.rl < parent.parsed_ruid.rl:
+                        if not isinstance(new_rl, int):
+                            issues.append(
+                                ValidationIssue(
+                                    rule="amendment.create.rl_required",
+                                    message="Create change new_state.rl is required and must be an integer.",
+                                    file_path=file_path,
+                                    entry_index=entry_index,
+                                    ruid=new_ruid,
+                                )
+                            )
+                        elif new_rl < parent.rl:
                             issues.append(
                                 ValidationIssue(
                                     rule="amendment.create.rl_monotonic",
                                     message=(
                                         f"Create change child RL must be >= parent RL. Parent {parent_ruid} has RL "
-                                        f"{parent.parsed_ruid.rl}, child {new_parsed.raw} has RL {new_parsed.rl}."
+                                        f"{parent.rl}, child {new_ruid} has RL {new_rl}."
                                     ),
                                     file_path=file_path,
                                     entry_index=entry_index,
-                                    ruid=new_parsed.raw,
+                                    ruid=new_ruid,
                                 )
                             )
 
-                        if parent.parsed_ruid.rs == "p" and new_parsed.rs != "p":
+                        if not isinstance(new_rs, str):
+                            issues.append(
+                                ValidationIssue(
+                                    rule="amendment.create.rs_required",
+                                    message="Create change new_state.rs is required.",
+                                    file_path=file_path,
+                                    entry_index=entry_index,
+                                    ruid=new_ruid,
+                                )
+                            )
+                        elif parent.rs == "p" and new_rs != "p":
                             issues.append(
                                 ValidationIssue(
                                     rule="amendment.create.rs_propagation",
                                     message=(
-                                        f"Create change child '{new_parsed.raw}' must keep state 'p' because "
+                                        f"Create change child '{new_ruid}' must keep state 'p' because "
                                         f"parent '{parent_ruid}' is proposed."
                                     ),
                                     file_path=file_path,
                                     entry_index=entry_index,
-                                    ruid=new_parsed.raw,
+                                    ruid=new_ruid,
                                 )
                             )
 
             if action == "state_transition" and target is not None:
-                new_rs = new_state.get("rs")
                 if isinstance(new_rs, str):
-                    old_rs = target.parsed_ruid.rs
+                    old_rs = target.rs
                     if old_rs == "c" and new_rs != "c":
                         issues.append(
                             ValidationIssue(
@@ -874,14 +832,14 @@ def _validate_amendment_semantics(
                             )
                         )
 
-                    parent = by_rn.get(target.parsed_ruid.rn[:-1])
-                    if parent and parent.parsed_ruid.rs == "p" and new_rs != "p":
+                    parent = requirements_by_ruid.get(target.ruid[:-1])
+                    if parent and parent.rs == "p" and new_rs != "p":
                         issues.append(
                             ValidationIssue(
                                 rule="amendment.state_transition.rs_propagation",
                                 message=(
                                     f"State transition for '{target_ruid}' must keep state 'p' because parent "
-                                    f"'{parent.parsed_ruid.raw}' is proposed."
+                                    f"'{parent.ruid}' is proposed."
                                 ),
                                 file_path=file_path,
                                 entry_index=entry_index,
@@ -889,7 +847,7 @@ def _validate_amendment_semantics(
                             )
                         )
 
-                    if new_rs == "t" and _has_immediate_child(target.parsed_ruid.rn):
+                    if new_rs == "t" and _has_immediate_child(target.ruid):
                         issues.append(
                             ValidationIssue(
                                 rule="amendment.state_transition.leaf",
@@ -919,13 +877,13 @@ def _validate_amendment_semantics(
                         )
                     )
                 else:
-                    target_parent_rn = target.parsed_ruid.rn[:-1]
-                    if new_parent.parsed_ruid.rn != target_parent_rn:
+                    target_parent_ruid = target.ruid[:-1]
+                    if new_parent.ruid != target_parent_ruid:
                         issues.append(
                             ValidationIssue(
                                 rule="amendment.move_hierarchy.parent_prefix",
                                 message=(
-                                    f"Move change parent '{parent_ruid}' is incompatible with immutable RN of "
+                                    f"Move change parent '{parent_ruid}' is incompatible with immutable RUID of "
                                     f"'{target_ruid}'."
                                 ),
                                 file_path=file_path,
@@ -942,8 +900,8 @@ def _validate_amendment_semantics(
                 )
                 for key in REF_KEYS:
                     for ref in refs.get(key, []):
-                        ref_rn = _to_rn(str(ref))
-                        if ref_rn is None or ref_rn not in seen_new_rns:
+                        ref_ruid = str(ref)
+                        if ref_ruid not in seen_new_ruids:
                             issues.append(
                                 ValidationIssue(
                                     rule="amendment.refs.exists",
@@ -989,9 +947,7 @@ def validate_change_artifacts(
     requirements_records, issues = _collect_records(
         requirements_dir, requirement_schema
     )
-    requirements_by_ruid = {
-        record.parsed_ruid.raw: record for record in requirements_records
-    }
+    requirements_by_ruid = {record.ruid: record for record in requirements_records}
 
     errata_schema = load_errata_schema(errata_schema_path)
     errata_issues, errata_entries = _collect_artifact_records(

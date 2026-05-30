@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from trussflow.cli import RN_CHARS, main
+from trussflow.cli import RUID_CHARS, main
 
 
 def _write(path: Path, content: str) -> None:
@@ -19,7 +19,9 @@ def _create_valid_tree(base: Path) -> None:
         requirements / "root.json",
         json.dumps(
             {
-                "ruid": "A0c",
+                "ruid": "A",
+                "rl": 0,
+                "rs": "c",
                 "timestamp": "2026-05-30T12:00:00Z",
                 "text": "The product shall define a valid root requirement.",
                 "rationale": "This is the top-level requirement.",
@@ -36,10 +38,12 @@ def _create_valid_tree(base: Path) -> None:
         + "\n",
     )
     _write(
-        requirements / "A" / "AB1c.json",
+        requirements / "A" / "AB.json",
         json.dumps(
             {
-                "ruid": "AB1c",
+                "ruid": "AB",
+                "rl": 1,
+                "rs": "c",
                 "timestamp": "2026-05-30T12:10:00Z",
                 "text": "The system shall define one valid child requirement.",
                 "rationale": "This establishes hierarchy for validation.",
@@ -68,7 +72,7 @@ def _create_valid_change_artifacts(base: Path) -> None:
                     "analyst_id": "agent.requirement-analyst",
                     "error_type": "gap",
                     "description": "A measurable child requirement is missing.",
-                    "affected_ruids": ["A0c"],
+                    "affected_ruids": ["A"],
                     "violated_rule": "text.verifiability",
                     "root_cause": "Current text is not measurable.",
                     "solutions": [
@@ -100,13 +104,15 @@ def _create_valid_change_artifacts(base: Path) -> None:
                         {
                             "change_id": "CHG-000001",
                             "action": "create",
-                            "parent_ruid": "A0c",
-                            "new_ruid": "AC1p",
+                            "parent_ruid": "A",
+                            "new_ruid": "AC",
                             "new_timestamp": "2026-05-30T12:16:00Z",
                             "new_state": {
                                 "text": "The system shall define one measurable child requirement.",
                                 "rationale": "Supports verifiability.",
                                 "scope": "in",
+                                "rl": 1,
+                                "rs": "p",
                                 "refs": {
                                     "depends_on": [],
                                     "related_to": [],
@@ -130,7 +136,9 @@ def _create_sibling_exhausted_tree(base: Path) -> None:
         requirements / "root.json",
         json.dumps(
             {
-                "ruid": "A0c",
+                "ruid": "A",
+                "rl": 0,
+                "rs": "c",
                 "timestamp": "2026-05-30T12:00:00Z",
                 "text": "The product shall define a valid root requirement.",
                 "rationale": "This is the top-level requirement.",
@@ -147,13 +155,15 @@ def _create_sibling_exhausted_tree(base: Path) -> None:
         + "\n",
     )
 
-    for token in RN_CHARS:
-        ruid = f"A{token}1c"
+    for token in RUID_CHARS:
+        ruid = f"A{token}"
         _write(
             requirements / "A" / f"{ruid}.json",
             json.dumps(
                 {
                     "ruid": ruid,
+                    "rl": 1,
+                    "rs": "c",
                     "timestamp": "2026-05-30T12:10:00Z",
                     "text": "The system shall define one valid child requirement.",
                     "rationale": "This establishes hierarchy for validation.",
@@ -245,25 +255,21 @@ def test_cli_requirement_get_json_success(tmp_path: Path, monkeypatch, capsys):
     assert code == 0
     assert payload["ok"] is True
     assert payload["result"]["selector"] == "AB"
-    assert payload["result"]["rn"] == "AB"
-    assert payload["result"]["ruid"] == "AB1c"
-    assert payload["result"]["requirement"]["ruid"] == "AB1c"
+    assert payload["result"]["ruid"] == "AB"
+    assert payload["result"]["requirement"]["ruid"] == "AB"
 
 
-def test_cli_requirement_get_accepts_ruid_suffix_mismatch(
-    tmp_path: Path, monkeypatch, capsys
-):
+def test_cli_requirement_get_rejects_unknown_ruid(tmp_path: Path, monkeypatch, capsys):
     _create_valid_tree(tmp_path)
     monkeypatch.chdir(tmp_path)
 
-    code = main(["requirement", "get", "AB1p", "--json"])
+    code = main(["requirement", "get", "AB1P", "--json"])
     out = capsys.readouterr().out
     payload = json.loads(out)
 
-    assert code == 0
-    assert payload["ok"] is True
-    assert payload["result"]["rn"] == "AB"
-    assert payload["result"]["ruid"] == "AB1c"
+    assert code == 1
+    assert payload["ok"] is False
+    assert payload["errors"][0]["error_code"] == "requirement.not_found"
 
 
 def test_cli_requirement_list_parent_filter(tmp_path: Path, monkeypatch, capsys):
@@ -277,7 +283,7 @@ def test_cli_requirement_list_parent_filter(tmp_path: Path, monkeypatch, capsys)
     assert code == 0
     assert payload["ok"] is True
     assert payload["result"]["count"] == 1
-    assert payload["result"]["items"][0]["ruid"] == "AB1c"
+    assert payload["result"]["items"][0]["ruid"] == "AB"
 
 
 def test_cli_requirement_list_root_only_filter(tmp_path: Path, monkeypatch, capsys):
@@ -291,7 +297,7 @@ def test_cli_requirement_list_root_only_filter(tmp_path: Path, monkeypatch, caps
     assert code == 0
     assert payload["ok"] is True
     assert payload["result"]["count"] == 1
-    assert payload["result"]["items"][0]["ruid"] == "A0c"
+    assert payload["result"]["items"][0]["ruid"] == "A"
 
 
 def test_cli_requirement_list_include_projection(tmp_path: Path, monkeypatch, capsys):
@@ -316,7 +322,7 @@ def test_cli_requirement_list_include_projection(tmp_path: Path, monkeypatch, ca
     assert payload["ok"] is True
     assert payload["result"]["count"] == 1
     assert sorted(payload["result"]["items"][0].keys()) == ["ruid", "text"]
-    assert payload["result"]["items"][0]["ruid"] == "AB1c"
+    assert payload["result"]["items"][0]["ruid"] == "AB"
 
 
 def test_cli_requirement_list_include_invalid_field(
@@ -351,10 +357,6 @@ def test_cli_requirement_create_child_dry_run(tmp_path: Path, monkeypatch, capsy
             "requirement",
             "create-child",
             "A",
-            "--rl",
-            "1",
-            "--rs",
-            "p",
             "--text",
             "The system shall define another child requirement.",
             "--rationale",
@@ -370,8 +372,8 @@ def test_cli_requirement_create_child_dry_run(tmp_path: Path, monkeypatch, capsy
     assert code == 0
     assert payload["ok"] is True
     assert payload["result"]["dry_run"] is True
-    assert payload["result"]["ruid"] == "A01p"
-    assert not (tmp_path / "requirements" / "A" / "A01p.json").exists()
+    assert payload["result"]["ruid"] == "A0"
+    assert not (tmp_path / "requirements" / "A" / "A0.json").exists()
 
 
 def test_cli_requirement_create_root_dry_run(tmp_path: Path, monkeypatch, capsys):
@@ -381,8 +383,6 @@ def test_cli_requirement_create_root_dry_run(tmp_path: Path, monkeypatch, capsys
         [
             "requirement",
             "create-root",
-            "--rs",
-            "p",
             "--text",
             "The product shall define the initial root requirement.",
             "--rationale",
@@ -398,7 +398,7 @@ def test_cli_requirement_create_root_dry_run(tmp_path: Path, monkeypatch, capsys
     assert code == 0
     assert payload["ok"] is True
     assert payload["result"]["dry_run"] is True
-    assert payload["result"]["ruid"] == "00p"
+    assert payload["result"]["ruid"] == "0"
     assert not (tmp_path / "requirements" / "root.json").exists()
 
 
@@ -411,8 +411,6 @@ def test_cli_requirement_create_root_apply_writes_root_file(
         [
             "requirement",
             "create-root",
-            "--rs",
-            "p",
             "--text",
             "The product shall define the initial root requirement.",
             "--rationale",
@@ -434,7 +432,7 @@ def test_cli_requirement_create_root_apply_writes_root_file(
     assert root_path.exists()
 
     doc = json.loads(root_path.read_text(encoding="ascii"))
-    assert doc["ruid"] == "00p"
+    assert doc["ruid"] == "0"
     assert doc["scope"] == "in"
 
 
@@ -448,8 +446,6 @@ def test_cli_requirement_create_root_fails_if_tree_exists(
         [
             "requirement",
             "create-root",
-            "--rs",
-            "p",
             "--text",
             "The product shall define another root requirement.",
             "--rationale",
@@ -478,10 +474,6 @@ def test_cli_requirement_create_child_apply_writes_file(
             "requirement",
             "create-child",
             "A",
-            "--rl",
-            "1",
-            "--rs",
-            "p",
             "--text",
             "The system shall define another child requirement.",
             "--rationale",
@@ -499,11 +491,11 @@ def test_cli_requirement_create_child_apply_writes_file(
     assert payload["ok"] is True
     assert payload["result"]["dry_run"] is False
 
-    written_path = tmp_path / "requirements" / "A" / "A01p.json"
+    written_path = tmp_path / "requirements" / "A" / "A0.json"
     assert written_path.exists()
 
     doc = json.loads(written_path.read_text(encoding="ascii"))
-    assert doc["ruid"] == "A01p"
+    assert doc["ruid"] == "A0"
     assert doc["scope"] == "in"
 
 
@@ -518,10 +510,6 @@ def test_cli_requirement_create_child_accepts_all_ref_types(
             "requirement",
             "create-child",
             "A",
-            "--rl",
-            "1",
-            "--rs",
-            "p",
             "--text",
             "The system shall define another child requirement.",
             "--rationale",
@@ -531,7 +519,7 @@ def test_cli_requirement_create_child_accepts_all_ref_types(
             "--depends-on",
             "A",
             "--related-to",
-            "AB1p",
+            "AB",
             "--ref",
             "supersedes:AB",
             "--apply",
@@ -544,7 +532,7 @@ def test_cli_requirement_create_child_accepts_all_ref_types(
     assert code == 0
     assert payload["ok"] is True
 
-    written_path = tmp_path / "requirements" / "A" / "A01p.json"
+    written_path = tmp_path / "requirements" / "A" / "A0.json"
     doc = json.loads(written_path.read_text(encoding="ascii"))
     assert doc["refs"]["depends_on"] == ["A"]
     assert doc["refs"]["related_to"] == ["AB"]
@@ -562,10 +550,6 @@ def test_cli_requirement_create_sibling_accepts_generic_ref_arg(
             "requirement",
             "create-sibling",
             "AB",
-            "--rl",
-            "1",
-            "--rs",
-            "p",
             "--text",
             "The system shall define a sibling requirement.",
             "--rationale",
@@ -573,11 +557,11 @@ def test_cli_requirement_create_sibling_accepts_generic_ref_arg(
             "--scope",
             "in",
             "--ref",
-            "depends_on=A0c",
+            "depends_on=A",
             "--ref",
             "related_to:AB",
             "--ref",
-            "supersedes=AB1c",
+            "supersedes=AB",
             "--apply",
             "--json",
         ]
@@ -588,7 +572,7 @@ def test_cli_requirement_create_sibling_accepts_generic_ref_arg(
     assert code == 0
     assert payload["ok"] is True
 
-    written_path = tmp_path / "requirements" / "A" / "A01p.json"
+    written_path = tmp_path / "requirements" / "A" / "A0.json"
     doc = json.loads(written_path.read_text(encoding="ascii"))
     assert doc["refs"]["depends_on"] == ["A"]
     assert doc["refs"]["related_to"] == ["AB"]
@@ -606,10 +590,6 @@ def test_cli_requirement_create_sibling_exhausted_has_guidance(
             "requirement",
             "create-sibling",
             "AA",
-            "--rl",
-            "1",
-            "--rs",
-            "p",
             "--text",
             "The system shall define one more sibling requirement.",
             "--rationale",
@@ -624,5 +604,4 @@ def test_cli_requirement_create_sibling_exhausted_has_guidance(
 
     assert code == 1
     assert payload["ok"] is False
-    assert payload["errors"][0]["error_code"] == "rn.exhausted"
-    assert "Direction: add hierarchy depth" in payload["errors"][0]["message"]
+    assert payload["errors"][0]["error_code"] == "ruid.exhausted"

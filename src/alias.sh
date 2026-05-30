@@ -17,12 +17,12 @@ trfla() {
 }
 
 trflr() {
-  trussflow requirement list --root --json
+  trussflow requirement list --root-only --json
 }
 
 trfcr() {
   local p1="$1"
   local p2="$2"
-  local p3="$3:in"
-  trussflow requirement create-root --rs p --text "$p1" --rationale "$p2" --scope "$p3" --json
+  local p3="${3:-in}"
+  trussflow requirement create-root --text "$p1" --rationale "$p2" --scope "$p3" --json
 }

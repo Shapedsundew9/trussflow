@@ -20,7 +20,9 @@ def _create_valid_tree(base: Path) -> Path:
         requirements / "root.json",
         json.dumps(
             {
-                "ruid": "A0c",
+                "ruid": "A",
+                "rl": 0,
+                "rs": "c",
                 "timestamp": "2026-05-30T12:00:00Z",
                 "text": "The product shall define a valid root requirement.",
                 "rationale": "This is the top-level requirement.",
@@ -38,10 +40,12 @@ def _create_valid_tree(base: Path) -> Path:
     )
 
     _write(
-        requirements / "A" / "AB1c.json",
+        requirements / "A" / "AB.json",
         json.dumps(
             {
-                "ruid": "AB1c",
+                "ruid": "AB",
+                "rl": 1,
+                "rs": "c",
                 "timestamp": "2026-05-30T12:10:00Z",
                 "text": "The system shall define one valid child requirement.",
                 "rationale": "This establishes hierarchy for validation.",
@@ -72,10 +76,12 @@ def test_project_validation_accepts_valid_tree(tmp_path: Path) -> None:
 def test_project_validation_detects_missing_reference(tmp_path: Path) -> None:
     requirements = _create_valid_tree(tmp_path)
     _write(
-        requirements / "A" / "AB1c.json",
+        requirements / "A" / "AB.json",
         json.dumps(
             {
-                "ruid": "AB1c",
+                "ruid": "AB",
+                "rl": 1,
+                "rs": "c",
                 "timestamp": "2026-05-30T12:10:00Z",
                 "text": "The system shall define one valid child requirement.",
                 "rationale": "This establishes hierarchy for validation.",
@@ -97,16 +103,18 @@ def test_project_validation_detects_missing_reference(tmp_path: Path) -> None:
     assert any(issue.rule == "refs.exists" for issue in issues)
 
 
-def test_project_validation_detects_duplicate_rn(tmp_path: Path) -> None:
+def test_project_validation_detects_duplicate_ruid(tmp_path: Path) -> None:
     requirements = _create_valid_tree(tmp_path)
     _write(
         requirements / "A1p.json",
         json.dumps(
             {
-                "ruid": "A1p",
+                "ruid": "A",
+                "rl": 1,
+                "rs": "p",
                 "timestamp": "2026-05-30T12:01:00Z",
-                "text": "The product shall define a duplicate RN requirement.",
-                "rationale": "This should fail RN uniqueness.",
+                "text": "The product shall define a duplicate RUID requirement.",
+                "rationale": "This should fail RUID uniqueness.",
                 "scope": "out",
                 "refs": {
                     "depends_on": [],
@@ -122,16 +130,18 @@ def test_project_validation_detects_duplicate_rn(tmp_path: Path) -> None:
 
     issues = validate_requirements_tree(requirements)
 
-    assert any(issue.rule == "rn.unique" for issue in issues)
+    assert any(issue.rule == "ruid.unique" for issue in issues)
 
 
 def test_project_validation_detects_normative_may_in_text(tmp_path: Path) -> None:
     requirements = _create_valid_tree(tmp_path)
     _write(
-        requirements / "A" / "AB1c.json",
+        requirements / "A" / "AB.json",
         json.dumps(
             {
-                "ruid": "AB1c",
+                "ruid": "AB",
+                "rl": 1,
+                "rs": "c",
                 "timestamp": "2026-05-30T12:10:00Z",
                 "text": "The system may define one valid child requirement.",
                 "rationale": "This violates the NASA wording convention for requirements.",
@@ -167,7 +177,7 @@ def _create_valid_errata_and_amendments(base: Path) -> tuple[Path, Path]:
                     "analyst_id": "agent.requirement-analyst",
                     "error_type": "gap",
                     "description": "A measurable child requirement is missing.",
-                    "affected_ruids": ["A0c"],
+                    "affected_ruids": ["A"],
                     "violated_rule": "text.verifiability",
                     "root_cause": "Current text is not measurable.",
                     "solutions": [
@@ -200,13 +210,15 @@ def _create_valid_errata_and_amendments(base: Path) -> tuple[Path, Path]:
                         {
                             "change_id": "CHG-000001",
                             "action": "create",
-                            "parent_ruid": "A0c",
-                            "new_ruid": "AC1p",
+                            "parent_ruid": "A",
+                            "new_ruid": "AC",
                             "new_timestamp": "2026-05-30T12:16:00Z",
                             "new_state": {
                                 "text": "The system shall define one measurable child requirement.",
                                 "rationale": "Supports verifiability.",
                                 "scope": "in",
+                                "rl": 1,
+                                "rs": "p",
                                 "refs": {
                                     "depends_on": [],
                                     "related_to": [],
@@ -253,13 +265,15 @@ def test_change_validation_detects_unknown_errata_reference(tmp_path: Path) -> N
                         {
                             "change_id": "CHG-000001",
                             "action": "create",
-                            "parent_ruid": "A0c",
-                            "new_ruid": "AC1p",
+                            "parent_ruid": "A",
+                            "new_ruid": "AC",
                             "new_timestamp": "2026-05-30T12:16:00Z",
                             "new_state": {
                                 "text": "The system shall define one measurable child requirement.",
                                 "rationale": "Supports verifiability.",
                                 "scope": "in",
+                                "rl": 1,
+                                "rs": "p",
                                 "refs": {
                                     "depends_on": [],
                                     "related_to": [],
@@ -299,7 +313,7 @@ def test_change_validation_blocks_in_place_published_edit(tmp_path: Path) -> Non
                         {
                             "change_id": "CHG-000001",
                             "action": "scope_change",
-                            "target_ruid": "A0c",
+                            "target_ruid": "A",
                             "new_state": {
                                 "scope": "out",
                             },
@@ -338,14 +352,16 @@ def test_change_validation_detects_supersede_timestamp_not_newer(
                         {
                             "change_id": "CHG-000001",
                             "action": "supersede",
-                            "target_ruid": "AB1c",
-                            "new_ruid": "AC1c",
+                            "target_ruid": "AB",
+                            "new_ruid": "AC",
                             "new_timestamp": "2026-05-30T12:09:00Z",
                             "supersedes": ["AB"],
                             "new_state": {
                                 "text": "The system shall define measurable verification criteria.",
                                 "rationale": "Supersedes older requirement text.",
                                 "scope": "in",
+                                "rl": 1,
+                                "rs": "c",
                                 "refs": {
                                     "depends_on": [],
                                     "related_to": [],
@@ -385,13 +401,15 @@ def test_change_validation_detects_create_invalid_direct_child(tmp_path: Path) -
                         {
                             "change_id": "CHG-000001",
                             "action": "create",
-                            "parent_ruid": "A0c",
-                            "new_ruid": "ABC1p",
+                            "parent_ruid": "A",
+                            "new_ruid": "ABC",
                             "new_timestamp": "2026-05-30T12:16:00Z",
                             "new_state": {
                                 "text": "The system shall define one measurable child requirement.",
                                 "rationale": "Supports verifiability.",
                                 "scope": "in",
+                                "rl": 1,
+                                "rs": "p",
                                 "refs": {
                                     "depends_on": [],
                                     "related_to": [],
@@ -431,7 +449,7 @@ def test_change_validation_detects_invalid_state_transition(tmp_path: Path) -> N
                         {
                             "change_id": "CHG-000001",
                             "action": "state_transition",
-                            "target_ruid": "AB1c",
+                            "target_ruid": "AB",
                             "new_state": {
                                 "rs": "p",
                             },

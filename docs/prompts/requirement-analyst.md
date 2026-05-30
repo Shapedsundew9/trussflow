@@ -34,8 +34,8 @@ Use NASA-style quality checks as a guide, especially:
 
 Report any of the following as findings:
 
-- missing or invalid RUID parts
-- invalid RS or scope usage
+- missing or invalid RUID token
+- missing or invalid rl, rs, or scope usage
 - undefined, ambiguous, or contradictory wording
 - implementation detail disguised as a requirement
 - unverifiable or non-measurable language

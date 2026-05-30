@@ -50,7 +50,7 @@ trussflow validate-changes --requirements requirements --errata errata --amendme
 
 Requirement query commands:
 
-Selectors can be RN (`AB`) or full RUID (`AB1c`).
+Selectors use RUID only (for example `AB`).
 
 ```bash
 trussflow requirement get AB --json
@@ -62,30 +62,26 @@ trussflow requirement inspect AB --include parent,siblings,children,refs --json
 
 Mechanical requirement creation commands (dry-run by default):
 
-RN allocation is automatic. For each parent RN, the next value is the first unused
+RUID allocation is automatic. For each parent RUID, the next value is the first unused
 one-character extension in this order: `0-9`, then `A-Z`. For the root in an empty
-tree, the first RN is `0`. Root RL is fixed to `0`.
+tree, the first RUID is `0`. Root `rl` is fixed to `0` and root `rs` defaults to `p`.
 Reference selectors for `--depends-on`, `--related-to`, `--supersedes`, and `--ref`
-can be provided as RN (for example `AB`) or full RUID (for example `AB1p`), but
-Trussflow always stores refs as RN only.
+must be RUID values (for example `AB`).
 
 ```bash
 trussflow requirement create-root \
- --rs p \
  --text "The product shall ..." \
  --rationale "..." \
  --scope in \
  --apply --json
 
 trussflow requirement create-child A \
- --rl 1 --rs p \
  --text "The system shall ..." \
  --rationale "..." \
  --scope in \
  --json
 
 trussflow requirement create-sibling AB \
- --rl 1 --rs p \
  --text "The system shall ..." \
  --rationale "..." \
  --scope in \

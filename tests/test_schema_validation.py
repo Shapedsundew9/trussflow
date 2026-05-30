@@ -26,7 +26,9 @@ def test_schema_validation_accepts_valid_entry(tmp_path: Path) -> None:
         requirement_file,
         json.dumps(
             {
-                "ruid": "A0c",
+                "ruid": "A",
+                "rl": 0,
+                "rs": "c",
                 "timestamp": "2026-05-30T12:00:00Z",
                 "text": "The product shall define one top-level requirement.",
                 "rationale": "This creates a valid root node.",
@@ -55,7 +57,9 @@ def test_schema_validation_rejects_unknown_field(tmp_path: Path) -> None:
         requirement_file,
         json.dumps(
             {
-                "ruid": "A0c",
+                "ruid": "A",
+                "rl": 0,
+                "rs": "c",
                 "timestamp": "2026-05-30T12:00:00Z",
                 "text": "The product shall define one top-level requirement.",
                 "rationale": "This creates a valid root node.",
@@ -83,7 +87,7 @@ def test_schema_validation_rejects_non_object_document(tmp_path: Path) -> None:
     requirement_file = tmp_path / "requirements" / "root.json"
     _write(
         requirement_file,
-        json.dumps([{"ruid": "A0c"}], indent=2) + "\n",
+        json.dumps([{"ruid": "A"}], indent=2) + "\n",
     )
 
     _, issues = validate_requirement_file(requirement_file, load_schema())
@@ -96,7 +100,7 @@ def test_schema_validation_rejects_malformed_json(tmp_path: Path) -> None:
     requirement_file = tmp_path / "requirements" / "root.json"
     _write(
         requirement_file,
-        '{"ruid": "A0c", "timestamp": "2026-05-30T12:00:00Z",',
+        '{"ruid": "A", "timestamp": "2026-05-30T12:00:00Z",',
     )
 
     _, issues = validate_requirement_file(requirement_file, load_schema())
@@ -111,7 +115,9 @@ def test_schema_validation_rejects_wrong_json_scalar_types(tmp_path: Path) -> No
         requirement_file,
         json.dumps(
             {
-                "ruid": "A0c",
+                "ruid": "A",
+                "rl": "0",
+                "rs": 1,
                 "timestamp": "2026-05-30T12:00:00Z",
                 "text": 123,
                 "rationale": "This creates a valid root node.",
@@ -148,7 +154,7 @@ def test_errata_schema_validation_accepts_valid_entry(tmp_path: Path) -> None:
                     "analyst_id": "agent.requirement-analyst",
                     "error_type": "gap",
                     "description": "A child requirement is missing for published scope handling.",
-                    "affected_ruids": ["A0c"],
+                    "affected_ruids": ["A"],
                     "violated_rule": "text.verifiability",
                     "root_cause": "The statement is too broad for verification.",
                     "solutions": [
@@ -209,13 +215,15 @@ def test_amendment_schema_validation_accepts_valid_entry(tmp_path: Path) -> None
                         {
                             "change_id": "CHG-000001",
                             "action": "create",
-                            "parent_ruid": "A0c",
-                            "new_ruid": "AB1p",
+                            "parent_ruid": "A",
+                            "new_ruid": "AB",
                             "new_timestamp": "2026-05-30T12:16:00Z",
                             "new_state": {
                                 "text": "The system shall define one measurable child requirement.",
                                 "rationale": "Ensures verifiable decomposition.",
                                 "scope": "in",
+                                "rl": 1,
+                                "rs": "p",
                                 "refs": {
                                     "depends_on": [],
                                     "related_to": [],

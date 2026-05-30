@@ -17,13 +17,11 @@ from trussflow.validation.schema_validation import (
     validate_requirement_file,
 )
 
-RUID_RE = re.compile(r"^([0-9A-Z]+)([0-3])([cpt])$")
-RN_RE = re.compile(r"^[0-9A-Z]+$")
-RN_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+RUID_TOKEN_RE = re.compile(r"^[0-9A-Z]+$")
+RUID_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 REF_KEYS = ("depends_on", "related_to", "supersedes")
 LIST_INCLUDE_FIELDS = (
     "ruid",
-    "rn",
     "rl",
     "rs",
     "scope",
@@ -38,17 +36,8 @@ class RequirementDoc:
 
     data: dict[str, Any]
     file_path: Path
-    rn: str
     rl: int
     rs: str
-
-
-def _parse_ruid(ruid: str) -> tuple[str, int, str] | None:
-    match = RUID_RE.match(ruid)
-    if not match:
-        return None
-    rn, rl, rs = match.groups()
-    return rn, int(rl), rs
 
 
 def _utc_now_iso() -> str:
@@ -111,16 +100,34 @@ def _load_requirements(
                 )
             )
             continue
-        parsed = _parse_ruid(ruid)
-        if parsed is None:
+        if not RUID_TOKEN_RE.match(ruid):
             issues.append(
                 _issue("ruid.parse", f"Unable to parse RUID '{ruid}'.", str(file_path))
             )
             continue
-        rn, rl, rs = parsed
-        docs.append(
-            RequirementDoc(data=entry, file_path=file_path, rn=rn, rl=rl, rs=rs)
-        )
+
+        rl = entry.get("rl")
+        rs = entry.get("rs")
+        if not isinstance(rl, int) or rl not in (0, 1, 2, 3):
+            issues.append(
+                _issue(
+                    "rl.parse",
+                    f"Requirement '{ruid}' is missing a valid integer rl in [0,1,2,3].",
+                    str(file_path),
+                )
+            )
+            continue
+        if not isinstance(rs, str) or rs not in ("c", "p", "t"):
+            issues.append(
+                _issue(
+                    "rs.parse",
+                    f"Requirement '{ruid}' is missing a valid rs in ['c','p','t'].",
+                    str(file_path),
+                )
+            )
+            continue
+
+        docs.append(RequirementDoc(data=entry, file_path=file_path, rl=rl, rs=rs))
 
     if not docs and not issues:
         issues.append(
@@ -138,23 +145,20 @@ def _build_indexes(
     docs: list[RequirementDoc],
 ) -> tuple[
     dict[str, RequirementDoc],
-    dict[str, RequirementDoc],
     dict[str, list[RequirementDoc]],
 ]:
     by_ruid: dict[str, RequirementDoc] = {}
-    by_rn: dict[str, RequirementDoc] = {}
-    children_by_rn: dict[str, list[RequirementDoc]] = {}
+    children_by_ruid: dict[str, list[RequirementDoc]] = {}
 
     for doc in docs:
         ruid = str(doc.data["ruid"])
         by_ruid[ruid] = doc
-        by_rn[doc.rn] = doc
 
     for doc in docs:
-        parent_rn = doc.rn[:-1]
-        children_by_rn.setdefault(parent_rn, []).append(doc)
+        parent_ruid = str(doc.data["ruid"])[:-1]
+        children_by_ruid.setdefault(parent_ruid, []).append(doc)
 
-    return by_ruid, by_rn, children_by_rn
+    return by_ruid, children_by_ruid
 
 
 def _output(
@@ -191,38 +195,31 @@ def _output(
     return 0 if ok else 1
 
 
-def _next_child_rn(parent_rn: str, used_rns: set[str]) -> str | None:
-    for ch in RN_CHARS:
-        candidate = f"{parent_rn}{ch}"
-        if candidate not in used_rns:
+def _next_child_ruid(parent_ruid: str, used_ruids: set[str]) -> str | None:
+    for ch in RUID_CHARS:
+        candidate = f"{parent_ruid}{ch}"
+        if candidate not in used_ruids:
             return candidate
     return None
 
 
-def _rn_exhausted_issue(*, parent_rn: str, parent_ruid: str) -> ValidationIssue:
+def _ruid_exhausted_issue(*, parent_ruid: str) -> ValidationIssue:
     return _issue(
-        "rn.exhausted",
+        "ruid.exhausted",
         (
-            f"No available one-character RN extension under parent RN '{parent_rn}' "
-            f"(parent {parent_ruid}). Maximum immediate children is {len(RN_CHARS)}. "
-            "Direction: add hierarchy depth by creating a child under an existing sibling "
-            "instead of adding another direct sibling at this level."
+            f"No available one-character RUID extension under parent RUID '{parent_ruid}'. "
+            f"Maximum immediate children is {len(RUID_CHARS)}."
         ),
     )
 
 
-def _resolve_rn_selector(
+def _resolve_ruid_selector(
     selector: str,
     *,
-    by_rn: dict[str, RequirementDoc] | None = None,
+    by_ruid: dict[str, RequirementDoc] | None = None,
 ) -> str | None:
-    _ = by_rn
-    parsed = _parse_ruid(selector)
-    if parsed is not None:
-        rn, _, _ = parsed
-        return rn
-
-    if RN_RE.match(selector):
+    _ = by_ruid
+    if RUID_TOKEN_RE.match(selector):
         return selector
     return None
 
@@ -230,20 +227,20 @@ def _resolve_rn_selector(
 def _resolve_requirement(
     selector: str,
     *,
-    by_rn: dict[str, RequirementDoc],
+    by_ruid: dict[str, RequirementDoc],
 ) -> tuple[RequirementDoc | None, ValidationIssue | None]:
-    rn = _resolve_rn_selector(selector, by_rn=by_rn)
-    if rn is None:
+    ruid = _resolve_ruid_selector(selector, by_ruid=by_ruid)
+    if ruid is None:
         return None, _issue(
             "ruid.parse",
-            f"Identifier must be RN or full RUID: '{selector}'.",
+            f"Identifier must be a valid RUID token: '{selector}'.",
         )
 
-    target = by_rn.get(rn)
+    target = by_ruid.get(ruid)
     if target is None:
         return None, _issue(
             "requirement.not_found",
-            f"Requirement not found for RN '{rn}'.",
+            f"Requirement not found for RUID '{ruid}'.",
         )
     return target, None
 
@@ -303,24 +300,24 @@ def _collect_raw_refs(
 def _resolve_ref_selectors(
     raw_refs: dict[str, list[str]],
     *,
-    by_rn: dict[str, RequirementDoc],
+    by_ruid: dict[str, RequirementDoc],
 ) -> tuple[dict[str, list[str]], list[ValidationIssue]]:
     resolved: dict[str, list[str]] = {key: [] for key in REF_KEYS}
     issues: list[ValidationIssue] = []
 
     for key in REF_KEYS:
         for selector in raw_refs.get(key, []):
-            rn = _resolve_rn_selector(selector, by_rn=by_rn)
-            if rn is None:
+            ruid = _resolve_ruid_selector(selector, by_ruid=by_ruid)
+            if ruid is None:
                 issues.append(
                     _issue(
                         "refs.parse",
-                        f"Reference '{selector}' in refs.{key} must be RN or full RUID.",
+                        f"Reference '{selector}' in refs.{key} must be a RUID.",
                     )
                 )
                 continue
 
-            target = by_rn.get(rn)
+            target = by_ruid.get(ruid)
             if target is None:
                 issues.append(
                     _issue(
@@ -330,19 +327,19 @@ def _resolve_ref_selectors(
                 )
                 continue
 
-            if rn not in resolved[key]:
-                resolved[key].append(rn)
+            if ruid not in resolved[key]:
+                resolved[key].append(ruid)
 
     return resolved, issues
 
 
 def _validate_refs_exist(
-    refs: dict[str, list[str]], by_rn: dict[str, RequirementDoc]
+    refs: dict[str, list[str]], by_ruid: dict[str, RequirementDoc]
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for key in REF_KEYS:
         for ref in refs.get(key, []):
-            if ref not in by_rn:
+            if ref not in by_ruid:
                 issues.append(
                     _issue(
                         "refs.exists",
@@ -359,7 +356,7 @@ def _validate_proposed_requirement(
     child_rs: str,
     child_refs: dict[str, list[str]],
     child_timestamp: str,
-    by_rn: dict[str, RequirementDoc],
+    by_ruid: dict[str, RequirementDoc],
 ) -> tuple[list[ValidationIssue], list[ValidationIssue]]:
     warnings: list[ValidationIssue] = []
     errors: list[ValidationIssue] = []
@@ -387,13 +384,13 @@ def _validate_proposed_requirement(
 
     if child_rl == 3:
         has_eligible_ancestor = parent.rl in (0, 1, 2)
-        ancestor_rn = parent.rn[:-1]
-        while not has_eligible_ancestor and ancestor_rn:
-            ancestor = by_rn.get(ancestor_rn)
+        ancestor_ruid = str(parent.data["ruid"])[:-1]
+        while not has_eligible_ancestor and ancestor_ruid:
+            ancestor = by_ruid.get(ancestor_ruid)
             if ancestor and ancestor.rl in (0, 1, 2):
                 has_eligible_ancestor = True
                 break
-            ancestor_rn = ancestor_rn[:-1]
+            ancestor_ruid = ancestor_ruid[:-1]
 
         if not has_eligible_ancestor:
             errors.append(
@@ -403,7 +400,7 @@ def _validate_proposed_requirement(
                 )
             )
 
-    ref_issues = _validate_refs_exist(child_refs, by_rn)
+    ref_issues = _validate_refs_exist(child_refs, by_ruid)
     errors.extend(ref_issues)
 
     child_ts = _parse_timestamp(child_timestamp)
@@ -415,8 +412,8 @@ def _validate_proposed_requirement(
             )
         )
     else:
-        for superseded_rn in child_refs.get("supersedes", []):
-            superseded = by_rn.get(superseded_rn)
+        for superseded_ruid in child_refs.get("supersedes", []):
+            superseded = by_ruid.get(superseded_ruid)
             if superseded is None:
                 continue
             superseded_ts = _parse_timestamp(superseded.data.get("timestamp"))
@@ -427,7 +424,7 @@ def _validate_proposed_requirement(
                     _issue(
                         "refs.supersedes.older",
                         (
-                            f"New requirement must be newer than superseded requirement RN {superseded_rn}."
+                            f"New requirement must be newer than superseded requirement RUID {superseded_ruid}."
                         ),
                     )
                 )
@@ -484,26 +481,28 @@ def _requirement_create_root(args: argparse.Namespace) -> int:
             command="requirement create-root",
             errors=ref_arg_issues,
         )
-    next_root_rn = _next_child_rn("", set())
-    if next_root_rn is None:
+    next_root_ruid = _next_child_ruid("", set())
+    if next_root_ruid is None:
         return _output(
             as_json=args.as_json,
             ok=False,
             command="requirement create-root",
             errors=[
                 _issue(
-                    "rn.exhausted",
-                    "No available root RN values remain.",
+                    "ruid.exhausted",
+                    "No available root RUID values remain.",
                 )
             ],
         )
 
-    payload["ruid"] = f"{next_root_rn}0{args.rs}"
+    payload["ruid"] = next_root_ruid
+    payload["rl"] = 0
+    payload["rs"] = "p"
 
     warnings: list[ValidationIssue] = []
     errors: list[ValidationIssue] = []
 
-    resolved_refs, ref_issues = _resolve_ref_selectors(payload["refs"], by_rn={})
+    resolved_refs, ref_issues = _resolve_ref_selectors(payload["refs"], by_ruid={})
     payload["refs"] = resolved_refs
     errors.extend(ref_issues)
 
@@ -562,8 +561,8 @@ def _requirement_get(args: argparse.Namespace) -> int:
             errors=issues,
         )
 
-    _, by_rn, _ = _build_indexes(docs)
-    target, resolve_issue = _resolve_requirement(args.ruid, by_rn=by_rn)
+    by_ruid, _ = _build_indexes(docs)
+    target, resolve_issue = _resolve_requirement(args.ruid, by_ruid=by_ruid)
     if resolve_issue is not None:
         return _output(
             as_json=args.as_json,
@@ -578,7 +577,6 @@ def _requirement_get(args: argparse.Namespace) -> int:
         command="requirement get",
         result={
             "selector": args.ruid,
-            "rn": target.rn,
             "ruid": target.data["ruid"],
             "path": str(target.file_path),
             "requirement": target.data,
@@ -596,11 +594,11 @@ def _requirement_list(args: argparse.Namespace) -> int:
             errors=issues,
         )
 
-    _, by_rn, _ = _build_indexes(docs)
+    by_ruid, _ = _build_indexes(docs)
     items = docs
     if args.parent:
-        parent_rn = _resolve_rn_selector(args.parent, by_rn=by_rn)
-        if parent_rn is None:
+        parent_ruid = _resolve_ruid_selector(args.parent, by_ruid=by_ruid)
+        if parent_ruid is None:
             return _output(
                 as_json=args.as_json,
                 ok=False,
@@ -608,17 +606,16 @@ def _requirement_list(args: argparse.Namespace) -> int:
                 errors=[
                     _issue(
                         "ruid.parse",
-                        f"Parent selector must be RN or full RUID: '{args.parent}'.",
+                        f"Parent selector must be a RUID: '{args.parent}'.",
                     )
                 ],
             )
         items = [
-            doc for doc in items if doc.rn.startswith(parent_rn) and doc.rn != parent_rn
+            doc
+            for doc in items
+            if str(doc.data["ruid"]).startswith(parent_ruid)
+            and str(doc.data["ruid"]) != parent_ruid
         ]
-    if args.rl is not None:
-        items = [doc for doc in items if doc.rl == args.rl]
-    if args.rs is not None:
-        items = [doc for doc in items if doc.rs == args.rs]
     if args.scope is not None:
         items = [doc for doc in items if doc.data.get("scope") == args.scope]
     if args.text_contains:
@@ -670,7 +667,6 @@ def _requirement_list(args: argparse.Namespace) -> int:
     result_items = [
         {
             "ruid": doc.data["ruid"],
-            "rn": doc.rn,
             "rl": doc.rl,
             "rs": doc.rs,
             "scope": doc.data.get("scope"),
@@ -705,8 +701,8 @@ def _requirement_inspect(args: argparse.Namespace) -> int:
             errors=issues,
         )
 
-    _, by_rn, children_by_rn = _build_indexes(docs)
-    target, resolve_issue = _resolve_requirement(args.ruid, by_rn=by_rn)
+    by_ruid, children_by_ruid = _build_indexes(docs)
+    target, resolve_issue = _resolve_requirement(args.ruid, by_ruid=by_ruid)
     if resolve_issue is not None:
         return _output(
             as_json=args.as_json,
@@ -722,15 +718,16 @@ def _requirement_inspect(args: argparse.Namespace) -> int:
         "path": str(target.file_path),
     }
 
-    parent_rn = target.rn[:-1]
+    target_ruid = str(target.data["ruid"])
+    parent_ruid = target_ruid[:-1]
     if "parent" in include:
-        parent = by_rn.get(parent_rn)
+        parent = by_ruid.get(parent_ruid)
         bundle["parent"] = parent.data if parent else None
 
     if "siblings" in include:
         siblings = [
             doc.data
-            for doc in children_by_rn.get(parent_rn, [])
+            for doc in children_by_ruid.get(parent_ruid, [])
             if doc.data["ruid"] != target.data["ruid"]
         ]
         bundle["siblings"] = sorted(siblings, key=lambda item: str(item["ruid"]))[
@@ -738,7 +735,7 @@ def _requirement_inspect(args: argparse.Namespace) -> int:
         ]
 
     if "children" in include:
-        children = [doc.data for doc in children_by_rn.get(target.rn, [])]
+        children = [doc.data for doc in children_by_ruid.get(target_ruid, [])]
         bundle["children"] = sorted(children, key=lambda item: str(item["ruid"]))[
             :max_items
         ]
@@ -749,8 +746,8 @@ def _requirement_inspect(args: argparse.Namespace) -> int:
         for key in REF_KEYS:
             resolved[key] = []
             for ref in refs.get(key, []):
-                ref_rn = _resolve_rn_selector(ref, by_rn=by_rn)
-                ref_doc = by_rn.get(ref_rn) if ref_rn is not None else None
+                ref_ruid = _resolve_ruid_selector(ref, by_ruid=by_ruid)
+                ref_doc = by_ruid.get(ref_ruid) if ref_ruid is not None else None
                 if ref_doc is not None:
                     resolved[key].append(ref_doc.data)
         bundle["resolved_refs"] = resolved
@@ -773,8 +770,8 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
             errors=issues,
         )
 
-    _, by_rn, _ = _build_indexes(docs)
-    anchor, resolve_issue = _resolve_requirement(args.anchor_ruid, by_rn=by_rn)
+    by_ruid, _ = _build_indexes(docs)
+    anchor, resolve_issue = _resolve_requirement(args.anchor_ruid, by_ruid=by_ruid)
     if resolve_issue is not None:
         return _output(
             as_json=args.as_json,
@@ -784,8 +781,8 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
         )
 
     if mode == "create-sibling":
-        parent_rn = anchor.rn[:-1]
-        if not parent_rn:
+        parent_ruid = str(anchor.data["ruid"])[:-1]
+        if not parent_ruid:
             return _output(
                 as_json=args.as_json,
                 ok=False,
@@ -797,7 +794,7 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
                     )
                 ],
             )
-        parent = by_rn.get(parent_rn)
+        parent = by_ruid.get(parent_ruid)
         if parent is None:
             return _output(
                 as_json=args.as_json,
@@ -806,13 +803,13 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
                 errors=[
                     _issue(
                         "hierarchy.parent_missing",
-                        f"Sibling parent RN '{parent_rn}' was not found.",
+                        f"Sibling parent RUID '{parent_ruid}' was not found.",
                     )
                 ],
             )
     else:
         parent = anchor
-        parent_rn = parent.rn
+        parent_ruid = str(parent.data["ruid"])
 
     payload = _make_requirement_payload(args)
     raw_refs, ref_arg_issues = _collect_raw_refs(args)
@@ -823,7 +820,7 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
             command=f"requirement {mode}",
             errors=ref_arg_issues,
         )
-    resolved_refs, ref_issues = _resolve_ref_selectors(raw_refs, by_rn=by_rn)
+    resolved_refs, ref_issues = _resolve_ref_selectors(raw_refs, by_ruid=by_ruid)
     payload["refs"] = resolved_refs
     if ref_issues:
         return _output(
@@ -833,31 +830,27 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
             errors=ref_issues,
         )
 
-    used_rns = set(by_rn)
-    new_rn = _next_child_rn(parent_rn, used_rns)
-    if new_rn is None:
+    used_ruids = set(by_ruid)
+    new_ruid = _next_child_ruid(parent_ruid, used_ruids)
+    if new_ruid is None:
         return _output(
             as_json=args.as_json,
             ok=False,
             command=f"requirement {mode}",
-            errors=[
-                _rn_exhausted_issue(
-                    parent_rn=parent_rn,
-                    parent_ruid=str(parent.data["ruid"]),
-                )
-            ],
+            errors=[_ruid_exhausted_issue(parent_ruid=str(parent.data["ruid"]))],
         )
 
-    new_ruid = f"{new_rn}{args.rl}{args.rs}"
     payload["ruid"] = new_ruid
+    payload["rl"] = parent.rl
+    payload["rs"] = "p"
 
     warnings, validation_errors = _validate_proposed_requirement(
         parent=parent,
-        child_rl=args.rl,
-        child_rs=args.rs,
+        child_rl=payload["rl"],
+        child_rs=payload["rs"],
         child_refs=payload["refs"],
         child_timestamp=str(payload["timestamp"]),
-        by_rn=by_rn,
+        by_ruid=by_ruid,
     )
 
     if re.search(r"\bmay\b", str(payload.get("text", "")), re.IGNORECASE):
@@ -877,7 +870,7 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
             errors=validation_errors,
         )
 
-    target_path = Path(args.requirements) / parent_rn / f"{new_ruid}.json"
+    target_path = Path(args.requirements) / parent_ruid / f"{new_ruid}.json"
     would_write = {
         "mode": mode,
         "dry_run": not args.apply,
@@ -971,11 +964,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     requirement_get_parser = requirement_subparsers.add_parser(
         "get",
-        help="Fetch one requirement by RN or RUID.",
+        help="Fetch one requirement by RUID.",
     )
     requirement_get_parser.add_argument(
         "ruid",
-        help="Requirement selector (RN or RUID).",
+        help="Requirement selector (RUID).",
     )
     requirement_get_parser.add_argument(
         "--requirements",
@@ -999,18 +992,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to requirements directory. Defaults to ./requirements.",
     )
     requirement_list_parser.add_argument(
-        "--parent", help="Filter to descendants of this parent selector (RN or RUID)."
-    )
-    requirement_list_parser.add_argument(
-        "--rl",
-        type=int,
-        choices=[0, 1, 2, 3],
-        help="Filter by RL decomposition stage.",
-    )
-    requirement_list_parser.add_argument(
-        "--rs",
-        choices=["c", "p", "t"],
-        help="Filter by RS state.",
+        "--parent", help="Filter to descendants of this parent selector (RUID)."
     )
     requirement_list_parser.add_argument(
         "--scope",
@@ -1052,7 +1034,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     requirement_inspect_parser.add_argument(
         "ruid",
-        help="Requirement selector (RN or RUID).",
+        help="Requirement selector (RUID).",
     )
     requirement_inspect_parser.add_argument(
         "--requirements",
@@ -1086,19 +1068,6 @@ def build_parser() -> argparse.ArgumentParser:
             default="requirements",
             help="Path to requirements directory. Defaults to ./requirements.",
         )
-        parser.add_argument(
-            "--rl",
-            type=int,
-            choices=[0, 1, 2, 3],
-            required=True,
-            help="RL value for new requirement.",
-        )
-        parser.add_argument(
-            "--rs",
-            choices=["c", "p", "t"],
-            required=True,
-            help="RS value for new requirement.",
-        )
         parser.add_argument("--text", required=True, help="Requirement statement text.")
         parser.add_argument(
             "--rationale",
@@ -1116,21 +1085,21 @@ def build_parser() -> argparse.ArgumentParser:
             dest="depends_on",
             action="append",
             default=[],
-            help="Add a refs.depends_on selector (RN or RUID). Stored as RN. Can be repeated.",
+            help="Add a refs.depends_on selector (RUID). Can be repeated.",
         )
         parser.add_argument(
             "--related-to",
             dest="related_to",
             action="append",
             default=[],
-            help="Add a refs.related_to selector (RN or RUID). Stored as RN. Can be repeated.",
+            help="Add a refs.related_to selector (RUID). Can be repeated.",
         )
         parser.add_argument(
             "--supersedes",
             dest="supersedes",
             action="append",
             default=[],
-            help="Add a refs.supersedes selector (RN or RUID). Stored as RN. Can be repeated.",
+            help="Add a refs.supersedes selector (RUID). Can be repeated.",
         )
         parser.add_argument(
             "--ref",
@@ -1160,12 +1129,6 @@ def build_parser() -> argparse.ArgumentParser:
             default="requirements",
             help="Path to requirements directory. Defaults to ./requirements.",
         )
-        parser.add_argument(
-            "--rs",
-            choices=["c", "p", "t"],
-            required=True,
-            help="RS value for root requirement.",
-        )
         parser.add_argument("--text", required=True, help="Requirement statement text.")
         parser.add_argument(
             "--rationale",
@@ -1183,21 +1146,21 @@ def build_parser() -> argparse.ArgumentParser:
             dest="depends_on",
             action="append",
             default=[],
-            help="Add a refs.depends_on selector (RN or RUID). Stored as RN. Can be repeated.",
+            help="Add a refs.depends_on selector (RUID). Can be repeated.",
         )
         parser.add_argument(
             "--related-to",
             dest="related_to",
             action="append",
             default=[],
-            help="Add a refs.related_to selector (RN or RUID). Stored as RN. Can be repeated.",
+            help="Add a refs.related_to selector (RUID). Can be repeated.",
         )
         parser.add_argument(
             "--supersedes",
             dest="supersedes",
             action="append",
             default=[],
-            help="Add a refs.supersedes selector (RN or RUID). Stored as RN. Can be repeated.",
+            help="Add a refs.supersedes selector (RUID). Can be repeated.",
         )
         parser.add_argument(
             "--ref",
@@ -1225,7 +1188,7 @@ def build_parser() -> argparse.ArgumentParser:
         "create-root",
         help=(
             "Create the initial root requirement in an empty requirements tree; "
-            "RN is auto-assigned from 0-9 then A-Z (first root RN is 0) and RL is always 0."
+            "RUID is auto-assigned from 0-9 then A-Z (first root RUID is 0)."
         ),
     )
     _add_root_create_arguments(create_root_parser)
@@ -1233,25 +1196,25 @@ def build_parser() -> argparse.ArgumentParser:
     create_child_parser = requirement_subparsers.add_parser(
         "create-child",
         help=(
-            "Create a child requirement; RN is inferred as the first unused "
+            "Create a child requirement; RUID is inferred as the first unused "
             "one-character extension in 0-9 then A-Z order."
         ),
     )
     _add_create_arguments(
         create_child_parser,
-        anchor_help="Parent requirement selector (RN or RUID).",
+        anchor_help="Parent requirement selector (RUID).",
     )
 
     create_sibling_parser = requirement_subparsers.add_parser(
         "create-sibling",
         help=(
-            "Create a sibling requirement; RN is inferred under the parent as the "
+            "Create a sibling requirement; RUID is inferred under the parent as the "
             "first unused one-character extension in 0-9 then A-Z order."
         ),
     )
     _add_create_arguments(
         create_sibling_parser,
-        anchor_help="Existing sibling selector (RN or RUID).",
+        anchor_help="Existing sibling selector (RUID).",
     )
     return parser
 
