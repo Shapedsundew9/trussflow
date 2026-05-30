@@ -7,7 +7,7 @@ set -e
 echo "--- Running post-create script ---"
 sudo apt update -y
 sudo apt upgrade -y
-sudo apt install ripgrep -y
+sudo apt install -y ripgrep vim
 
 # Activating the virtual environment
 echo "Creating virtual environment..."

@@ -436,6 +436,30 @@ def test_cli_requirement_create_root_apply_writes_root_file(
     assert doc["scope"] == "in"
 
 
+def test_cli_requirement_create_root_non_json_success_message(
+    tmp_path: Path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-root",
+            "--text",
+            "The product shall define the initial root requirement.",
+            "--rationale",
+            "Bootstrap the requirements tree.",
+            "--scope",
+            "in",
+            "--apply",
+        ]
+    )
+    out = capsys.readouterr().out.strip()
+
+    assert code == 0
+    assert out == "RUID 0 successfully created."
+
+
 def test_cli_requirement_create_root_fails_if_tree_exists(
     tmp_path: Path, monkeypatch, capsys
 ):
@@ -497,6 +521,31 @@ def test_cli_requirement_create_child_apply_writes_file(
     doc = json.loads(written_path.read_text(encoding="ascii"))
     assert doc["ruid"] == "A0"
     assert doc["scope"] == "in"
+
+
+def test_cli_requirement_create_child_non_json_success_message(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-child",
+            "A",
+            "--text",
+            "The system shall define another child requirement.",
+            "--rationale",
+            "Covers additional scope.",
+            "--scope",
+            "in",
+        ]
+    )
+    out = capsys.readouterr().out.strip()
+
+    assert code == 0
+    assert out == "RUID A0 successfully created."
 
 
 def test_cli_requirement_create_child_accepts_all_ref_types(

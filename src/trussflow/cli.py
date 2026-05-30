@@ -439,6 +439,11 @@ def _write_requirement_file(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
+def _output_created_message(ruid: str) -> int:
+    print(f"RUID {ruid} successfully created.")
+    return 0
+
+
 def _requirement_create_root(args: argparse.Namespace) -> int:
     requirements_dir = Path(args.requirements)
 
@@ -533,6 +538,8 @@ def _requirement_create_root(args: argparse.Namespace) -> int:
     }
 
     if not args.apply:
+        if not args.as_json:
+            return _output_created_message(str(payload["ruid"]))
         return _output(
             as_json=args.as_json,
             ok=True,
@@ -542,6 +549,8 @@ def _requirement_create_root(args: argparse.Namespace) -> int:
         )
 
     _write_requirement_file(target_path, payload)
+    if not args.as_json:
+        return _output_created_message(str(payload["ruid"]))
     return _output(
         as_json=args.as_json,
         ok=True,
@@ -881,6 +890,8 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
     }
 
     if not args.apply:
+        if not args.as_json:
+            return _output_created_message(str(new_ruid))
         return _output(
             as_json=args.as_json,
             ok=True,
@@ -890,6 +901,8 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
         )
 
     _write_requirement_file(target_path, payload)
+    if not args.as_json:
+        return _output_created_message(str(new_ruid))
     return _output(
         as_json=args.as_json,
         ok=True,
