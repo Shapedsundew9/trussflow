@@ -528,6 +528,73 @@ def test_cli_requirement_create_child_apply_writes_file(
     assert doc["scope"] == "in"
 
 
+def test_cli_requirement_create_child_accepts_rl_and_rs(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-child",
+            "A",
+            "--text",
+            "The system shall define another child requirement.",
+            "--rationale",
+            "Covers additional scope.",
+            "--scope",
+            "in",
+            "--rl",
+            "2",
+            "--rs",
+            "c",
+            "--apply",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+
+    written_path = tmp_path / "requirements" / "A" / "A0.json"
+    doc = json.loads(written_path.read_text(encoding="ascii"))
+    assert doc["rl"] == 2
+    assert doc["rs"] == "c"
+
+
+def test_cli_requirement_create_child_rejects_rl_below_parent(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-child",
+            "AB",
+            "--text",
+            "The subsystem shall define another child requirement.",
+            "--rationale",
+            "Covers additional scope.",
+            "--scope",
+            "in",
+            "--rl",
+            "0",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 1
+    assert payload["ok"] is False
+    assert payload["errors"][0]["error_code"] == "rl.monotonic"
+
+
 def test_cli_requirement_create_child_non_json_success_message(
     tmp_path: Path, monkeypatch, capsys
 ):
@@ -631,6 +698,43 @@ def test_cli_requirement_create_sibling_accepts_generic_ref_arg(
     assert doc["refs"]["depends_on"] == ["A"]
     assert doc["refs"]["related_to"] == ["AB"]
     assert doc["refs"]["supersedes"] == ["AB"]
+
+
+def test_cli_requirement_create_sibling_accepts_rl_and_rs(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-sibling",
+            "AB",
+            "--text",
+            "The system shall define a sibling requirement.",
+            "--rationale",
+            "Extends sibling coverage.",
+            "--scope",
+            "in",
+            "--rl",
+            "2",
+            "--rs",
+            "t",
+            "--apply",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+
+    written_path = tmp_path / "requirements" / "A" / "A0.json"
+    doc = json.loads(written_path.read_text(encoding="ascii"))
+    assert doc["rl"] == 2
+    assert doc["rs"] == "t"
 
 
 def test_cli_requirement_create_sibling_exhausted_has_guidance(

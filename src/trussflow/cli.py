@@ -1045,8 +1045,8 @@ def _requirement_create(args: argparse.Namespace, *, mode: str) -> int:
         )
 
     payload["ruid"] = new_ruid
-    payload["rl"] = parent.rl
-    payload["rs"] = "p"
+    payload["rl"] = args.rl if args.rl is not None else parent.rl
+    payload["rs"] = args.rs if args.rs is not None else "p"
 
     warnings, validation_errors = _validate_proposed_requirement(
         parent=parent,
@@ -1322,6 +1322,17 @@ def build_parser() -> argparse.ArgumentParser:
             choices=["in", "out"],
             required=True,
             help="Requirement scope.",
+        )
+        parser.add_argument(
+            "--rl",
+            type=int,
+            choices=[0, 1, 2, 3],
+            help="Requirement level. Defaults to parent rl when omitted.",
+        )
+        parser.add_argument(
+            "--rs",
+            choices=["c", "p", "t"],
+            help="Requirement state. Defaults to 'p' when omitted.",
         )
         parser.add_argument(
             "--depends-on",

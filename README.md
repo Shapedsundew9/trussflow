@@ -79,12 +79,14 @@ trussflow requirement create-child A \
  --text "The system shall ..." \
  --rationale "..." \
  --scope in \
+ --rl 1 --rs p \
  --json
 
 trussflow requirement create-sibling AB \
  --text "The system shall ..." \
  --rationale "..." \
  --scope in \
+ --rl 1 --rs p \
  --apply --json
 ```
 

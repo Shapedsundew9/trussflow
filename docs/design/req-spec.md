@@ -68,9 +68,7 @@ Rules:
 Requirements are stored under requirements/ using RUID-based folders.
 
 * Root file: requirements/root.json
-* Root folder: `requirements/<root-ruid>/`
-* Each requirement is stored in exactly one JSON file.
-* A descendant requirement is stored at `requirements/<parent-ruid>/<child-ruid>.json`
+* A descendant requirement is stored at `requirements/<parent-ruid>/<parent-ruid>.json`
 * A requirement gets its own folder only if it has children.
 * Empty folders are forbidden.
 
@@ -103,11 +101,12 @@ Rules:
 
 ## Example
 
-Example file requirements/A/AB.json:
+Example file requirements/A/A.json:
 
 ```json
-{
-  "ruid": "AB",
+[
+  {
+  "ruid": "A0",
   "rl": 1,
   "rs": "c",
   "timestamp": "2026-05-30T12:00:00Z",
@@ -119,7 +118,22 @@ Example file requirements/A/AB.json:
     "related_to": ["XZ"],
     "supersedes": []
   }
+  },
+  {
+  "ruid": "A1",
+  "rl": 1,
+  "rs": "c",
+  "timestamp": "2026-05-30T12:00:00Z",
+  "text": "The system shall number requirements sequentially",
+  "rationale": "The next free RUID can be easily determined.",
+  "scope": "in",
+  "refs": {
+    "depends_on": [],
+    "related_to": [],
+    "supersedes": []
+  }
 }
+]
 ```
 
 ## Controlled Terminology
