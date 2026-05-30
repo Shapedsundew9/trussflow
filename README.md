@@ -87,3 +87,20 @@ trussflow requirement create-sibling AB \
  --scope in \
  --apply --json
 ```
+
+Prompt template rendering:
+
+Use `prompt render` to replace `{{PLACEHOLDER}}` tokens in a prompt file using repeated
+`--var KEY=VALUE` arguments. By default, rendered files are written under `.trussflow/tmp`.
+
+```bash
+trussflow prompt render docs/prompts/requirement-seed-writer.md \
+ --var SOURCE_DOCUMENT_PATH=docs/design/req-spec.md \
+ --var RL=1
+
+trussflow prompt render docs/prompts/requirement-seed-writer.md \
+ --var SOURCE_DOCUMENT_PATH=docs/design/req-spec.md \
+ --var RL=1 \
+ --output .trussflow/tmp/seed-rendered.md \
+ --json
+```

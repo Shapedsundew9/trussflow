@@ -181,6 +181,11 @@ def _create_sibling_exhausted_tree(base: Path) -> None:
         )
 
 
+def _write_prompt_template(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
 def test_cli_version(capsys):
     code = main(["--version"])
     out = capsys.readouterr().out.strip()
@@ -654,3 +659,168 @@ def test_cli_requirement_create_sibling_exhausted_has_guidance(
     assert code == 1
     assert payload["ok"] is False
     assert payload["errors"][0]["error_code"] == "ruid.exhausted"
+
+
+def test_cli_prompt_render_success_to_default_tmp(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    template = tmp_path / "docs" / "prompts" / "seed.md"
+    _write_prompt_template(
+        template,
+        "Read {{SOURCE_DOCUMENT_PATH}} at RL {{RL}}.\n",
+    )
+
+    code = main(
+        [
+            "prompt",
+            "render",
+            str(template),
+            "--var",
+            "SOURCE_DOCUMENT_PATH=docs/design/req-spec.md",
+            "--var",
+            "RL=1",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    output_path = Path(payload["result"]["output_path"])
+    assert output_path.exists()
+    assert output_path.parts[0:2] == (".trussflow", "tmp")
+    rendered = output_path.read_text(encoding="utf-8")
+    assert "{{SOURCE_DOCUMENT_PATH}}" not in rendered
+    assert "{{RL}}" not in rendered
+    assert "docs/design/req-spec.md" in rendered
+    assert "RL 1" in rendered
+
+
+def test_cli_prompt_render_missing_placeholder_value_fails(
+    tmp_path: Path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    template = tmp_path / "prompt.md"
+    _write_prompt_template(template, "Source={{SOURCE_DOCUMENT_PATH}} RL={{RL}}\n")
+
+    code = main(
+        [
+            "prompt",
+            "render",
+            str(template),
+            "--var",
+            "SOURCE_DOCUMENT_PATH=docs/design/req-spec.md",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 1
+    assert payload["ok"] is False
+    assert payload["errors"][0]["error_code"] == "prompt.placeholder.missing"
+    assert "RL" in payload["errors"][0]["message"]
+
+
+def test_cli_prompt_render_malformed_var_fails(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    template = tmp_path / "prompt.md"
+    _write_prompt_template(template, "Value={{RL}}\n")
+
+    code = main(
+        [
+            "prompt",
+            "render",
+            str(template),
+            "--var",
+            "RL",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 1
+    assert payload["ok"] is False
+    assert payload["errors"][0]["error_code"] == "prompt.var.format"
+
+
+def test_cli_prompt_render_duplicate_var_key_fails(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    template = tmp_path / "prompt.md"
+    _write_prompt_template(template, "Value={{RL}}\n")
+
+    code = main(
+        [
+            "prompt",
+            "render",
+            str(template),
+            "--var",
+            "RL=1",
+            "--var",
+            "RL=2",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 1
+    assert payload["ok"] is False
+    assert payload["errors"][0]["error_code"] == "prompt.var.duplicate"
+
+
+def test_cli_prompt_render_explicit_output_path(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    template = tmp_path / "prompt.md"
+    _write_prompt_template(template, "Value={{RL}}\n")
+    output_path = tmp_path / "rendered" / "prompt.md"
+
+    code = main(
+        [
+            "prompt",
+            "render",
+            str(template),
+            "--var",
+            "RL=2",
+            "--output",
+            str(output_path),
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert Path(payload["result"]["output_path"]) == output_path
+    assert output_path.exists()
+    assert output_path.read_text(encoding="utf-8") == "Value=2\n"
+
+
+def test_cli_prompt_render_unused_var_warns_in_json(
+    tmp_path: Path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    template = tmp_path / "prompt.md"
+    _write_prompt_template(template, "Value={{RL}}\n")
+
+    code = main(
+        [
+            "prompt",
+            "render",
+            str(template),
+            "--var",
+            "RL=2",
+            "--var",
+            "SOURCE_DOCUMENT_PATH=docs/design/req-spec.md",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["warnings"][0]["error_code"] == "prompt.var.unused"
+    assert "SOURCE_DOCUMENT_PATH" in payload["warnings"][0]["message"]

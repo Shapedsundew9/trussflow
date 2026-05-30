@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,8 @@ from trussflow.validation.schema_validation import (
 RUID_TOKEN_RE = re.compile(r"^[0-9A-Z]+$")
 RUID_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 REF_KEYS = ("depends_on", "related_to", "supersedes")
+PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Z][A-Z0-9_]*)\s*\}\}")
+VAR_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 LIST_INCLUDE_FIELDS = (
     "ruid",
     "rl",
@@ -442,6 +445,198 @@ def _write_requirement_file(path: Path, payload: dict[str, Any]) -> None:
 def _output_created_message(ruid: str) -> int:
     print(f"RUID {ruid} successfully created.")
     return 0
+
+
+def _parse_var_assignments(
+    raw_items: list[str],
+) -> tuple[dict[str, str], list[ValidationIssue]]:
+    issues: list[ValidationIssue] = []
+    keys: list[str] = []
+    parsed: dict[str, str] = {}
+
+    for item in raw_items:
+        if "=" not in item:
+            issues.append(
+                _issue(
+                    "prompt.var.format",
+                    f"Variable '{item}' must use KEY=VALUE format.",
+                )
+            )
+            continue
+
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            issues.append(
+                _issue(
+                    "prompt.var.key",
+                    "Variable key must not be empty.",
+                )
+            )
+            continue
+
+        if not VAR_KEY_RE.match(key):
+            issues.append(
+                _issue(
+                    "prompt.var.key",
+                    (f"Variable key '{key}' must match " "^[A-Z][A-Z0-9_]*$."),
+                )
+            )
+            continue
+
+        keys.append(key)
+        parsed[key] = value
+
+    duplicates = sorted(key for key, count in Counter(keys).items() if count > 1)
+    if duplicates:
+        issues.append(
+            _issue(
+                "prompt.var.duplicate",
+                f"Duplicate variable key(s): {', '.join(duplicates)}.",
+            )
+        )
+
+    return parsed, issues
+
+
+def _render_prompt_template(
+    template_text: str,
+    variables: dict[str, str],
+) -> tuple[str, list[str], list[str]]:
+    placeholders = sorted(set(PLACEHOLDER_RE.findall(template_text)))
+    missing = [name for name in placeholders if name not in variables]
+
+    if missing:
+        return "", placeholders, missing
+
+    def _replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        return variables[key]
+
+    rendered = PLACEHOLDER_RE.sub(_replace, template_text)
+    return rendered, placeholders, []
+
+
+def _default_render_output_path(template_path: Path) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    suffix = template_path.suffix or ".txt"
+    return Path(".trussflow") / "tmp" / f"{template_path.stem}-{timestamp}{suffix}"
+
+
+def _prompt_render(args: argparse.Namespace) -> int:
+    command = "prompt render"
+    template_path = Path(args.template_path)
+    if not template_path.exists():
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command=command,
+            errors=[
+                _issue(
+                    "prompt.template.missing",
+                    f"Template file does not exist: {template_path}",
+                )
+            ],
+        )
+    if not template_path.is_file():
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command=command,
+            errors=[
+                _issue(
+                    "prompt.template.type",
+                    f"Template path must be a file: {template_path}",
+                )
+            ],
+        )
+
+    variables, var_issues = _parse_var_assignments(list(args.vars or []))
+    if var_issues:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command=command,
+            errors=var_issues,
+        )
+
+    try:
+        template_text = template_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command=command,
+            errors=[
+                _issue(
+                    "prompt.template.read",
+                    f"Failed to read template file: {exc}",
+                    str(template_path),
+                )
+            ],
+        )
+
+    rendered_text, placeholders, missing = _render_prompt_template(
+        template_text, variables
+    )
+    if missing:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command=command,
+            errors=[
+                _issue(
+                    "prompt.placeholder.missing",
+                    f"Missing variable value(s): {', '.join(missing)}.",
+                    str(template_path),
+                )
+            ],
+        )
+
+    warnings: list[ValidationIssue] = []
+    extras = sorted(key for key in variables if key not in placeholders)
+    if extras:
+        warnings.append(
+            _issue(
+                "prompt.var.unused",
+                f"Unused variable key(s): {', '.join(extras)}.",
+            )
+        )
+
+    output_path = (
+        Path(args.output) if args.output else _default_render_output_path(template_path)
+    )
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(rendered_text, encoding="utf-8")
+    except OSError as exc:
+        return _output(
+            as_json=args.as_json,
+            ok=False,
+            command=command,
+            warnings=warnings,
+            errors=[
+                _issue(
+                    "prompt.output.write",
+                    f"Failed to write rendered prompt: {exc}",
+                    str(output_path),
+                )
+            ],
+        )
+
+    return _output(
+        as_json=args.as_json,
+        ok=True,
+        command=command,
+        warnings=warnings,
+        result={
+            "template_path": str(template_path),
+            "output_path": str(output_path),
+            "placeholders_found": placeholders,
+            "placeholders_replaced": len(placeholders),
+            "variables_provided": sorted(variables.keys()),
+        },
+    )
 
 
 def _requirement_create_root(args: argparse.Namespace) -> int:
@@ -967,6 +1162,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON output.",
     )
 
+    prompt_parser = subparsers.add_parser(
+        "prompt",
+        help="Render prompt templates with variable substitution.",
+    )
+    prompt_subparsers = prompt_parser.add_subparsers(dest="prompt_command")
+
+    prompt_render_parser = prompt_subparsers.add_parser(
+        "render",
+        help="Render a prompt template by replacing {{PLACEHOLDER}} variables.",
+    )
+    prompt_render_parser.add_argument(
+        "template_path",
+        help="Path to the prompt template file.",
+    )
+    prompt_render_parser.add_argument(
+        "--var",
+        dest="vars",
+        action="append",
+        default=[],
+        help="Variable assignment in KEY=VALUE format. Can be repeated.",
+    )
+    prompt_render_parser.add_argument(
+        "--output",
+        help=(
+            "Optional output file path. Defaults to .trussflow/tmp/"
+            "<template-stem>-<timestamp>.<ext>."
+        ),
+    )
+    prompt_render_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Emit machine-readable JSON output.",
+    )
+
     requirement_parser = subparsers.add_parser(
         "requirement",
         help="Read and mechanically author requirements.",
@@ -1309,6 +1539,12 @@ def main(argv: list[str] | None = None) -> int:
             return _requirement_create(args, mode="create-child")
         if args.requirement_command == "create-sibling":
             return _requirement_create(args, mode="create-sibling")
+        parser.print_help()
+        return 0
+
+    if args.command == "prompt":
+        if args.prompt_command == "render":
+            return _prompt_render(args)
         parser.print_help()
         return 0
 
