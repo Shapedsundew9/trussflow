@@ -185,3 +185,103 @@ def test_cli_validate_changes_json_failure_for_missing_errata(
     assert payload["valid"] is False
     assert payload["error_count"] >= 1
     assert any(err["error_code"] == "artifact.empty" for err in payload["errors"])
+
+
+def test_cli_requirement_get_json_success(tmp_path: Path, monkeypatch, capsys):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(["requirement", "get", "AB1c", "--json"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["result"]["ruid"] == "AB1c"
+    assert payload["result"]["requirement"]["ruid"] == "AB1c"
+
+
+def test_cli_requirement_list_parent_filter(tmp_path: Path, monkeypatch, capsys):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(["requirement", "list", "--parent", "A0c", "--json"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["result"]["count"] == 1
+    assert payload["result"]["items"][0]["ruid"] == "AB1c"
+
+
+def test_cli_requirement_create_child_dry_run(tmp_path: Path, monkeypatch, capsys):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-child",
+            "A0c",
+            "--rl",
+            "1",
+            "--rs",
+            "p",
+            "--text",
+            "The system shall define another child requirement.",
+            "--rationale",
+            "Covers additional scope.",
+            "--scope",
+            "in",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["result"]["dry_run"] is True
+    assert payload["result"]["ruid"] == "AA1p"
+    assert not (tmp_path / "requirements" / "A" / "AA1p.json").exists()
+
+
+def test_cli_requirement_create_child_apply_writes_file(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _create_valid_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    code = main(
+        [
+            "requirement",
+            "create-child",
+            "A0c",
+            "--rl",
+            "1",
+            "--rs",
+            "p",
+            "--text",
+            "The system shall define another child requirement.",
+            "--rationale",
+            "Covers additional scope.",
+            "--scope",
+            "in",
+            "--apply",
+            "--json",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["result"]["dry_run"] is False
+
+    written_path = tmp_path / "requirements" / "A" / "AA1p.json"
+    assert written_path.exists()
+
+    doc = json.loads(written_path.read_text(encoding="ascii"))
+    assert doc["ruid"] == "AA1p"
+    assert doc["scope"] == "in"

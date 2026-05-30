@@ -47,3 +47,29 @@ Validate Errata and Amendment artifacts against requirements baseline:
 ```bash
 trussflow validate-changes --requirements requirements --errata errata --amendments amendments
 ```
+
+Requirement query commands:
+
+```bash
+trussflow requirement get AB1c --json
+trussflow requirement list --parent A0c --json
+trussflow requirement inspect AB1c --include parent,siblings,children,refs --json
+```
+
+Mechanical requirement creation commands (dry-run by default):
+
+```bash
+trussflow requirement create-child A0c \
+ --rl 1 --rs p \
+ --text "The system shall ..." \
+ --rationale "..." \
+ --scope in \
+ --json
+
+trussflow requirement create-sibling AB1c \
+ --rl 1 --rs p \
+ --text "The system shall ..." \
+ --rationale "..." \
+ --scope in \
+ --apply --json
+```
