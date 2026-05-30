@@ -133,22 +133,3 @@ Only the terms in this glossary shall be used with normative meaning.
 * Scope: Inclusion status of a requirement, either in or out.
 * Cross-reference: A typed link in refs to another requirement.
 * Supersedes: A replacement relation from a newer requirement to an older one.
-
-## Change Artifacts
-
-Requirement review remediation uses two additional artifacts:
-
-* Errata files in `errata/` validated by `schemas/errata.schema.json`
-* Amendment files in `amendments/` validated by `schemas/amendment.schema.json`
-
-These artifacts are ASCII JSON files with top-level arrays.
-
-Validation rules:
-
-* errata entries shall reference existing requirement RUIDs.
-* amendment entries shall reference existing errata entries and one valid selected solution.
-* modifications to published requirements (RS=`c`) that change state, scope, references, or hierarchy shall be represented as `supersede` actions rather than in-place edits.
-
-CLI entry point:
-
-* `trussflow validate-changes --requirements requirements --errata errata --amendments amendments`

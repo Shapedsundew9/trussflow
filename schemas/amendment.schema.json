@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://trussflow.dev/schemas/amendment.schema.json",
+    "$id": "https://github.com/Shapedsundew9/trussflow/blob/main/schemas/amendment.schema.json",
     "title": "Trussflow Amendment File",
     "type": "array",
     "minItems": 1,

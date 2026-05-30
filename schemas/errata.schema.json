@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://trussflow.dev/schemas/errata.schema.json",
+    "$id": "https://github.com/Shapedsundew9/trussflow/blob/main/schemas/errata.schema.json",
     "title": "Trussflow Errata File",
     "type": "array",
     "minItems": 1,
