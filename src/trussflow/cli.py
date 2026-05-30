@@ -19,7 +19,7 @@ from trussflow.validation.schema_validation import (
 
 RUID_RE = re.compile(r"^([0-9A-Z]+)([0-3])([cpt])$")
 RN_RE = re.compile(r"^[0-9A-Z]+$")
-RN_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+RN_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 REF_KEYS = ("depends_on", "related_to", "supersedes")
 LIST_INCLUDE_FIELDS = (
     "ruid",
@@ -400,21 +400,22 @@ def _requirement_create_root(args: argparse.Namespace) -> int:
                 ],
             )
 
-    if not RN_RE.match(args.rn):
+    payload = _make_requirement_payload(args)
+    next_root_rn = _next_child_rn("", set())
+    if next_root_rn is None:
         return _output(
             as_json=args.as_json,
             ok=False,
             command="requirement create-root",
             errors=[
                 _issue(
-                    "rn.parse",
-                    f"RN must match pattern [0-9A-Z]+: '{args.rn}'.",
+                    "rn.exhausted",
+                    "No available root RN values remain.",
                 )
             ],
         )
 
-    payload = _make_requirement_payload(args)
-    payload["ruid"] = f"{args.rn}{args.rl}{args.rs}"
+    payload["ruid"] = f"{next_root_rn}{args.rl}{args.rs}"
 
     warnings: list[ValidationIssue] = []
     errors: list[ValidationIssue] = []
@@ -541,6 +542,8 @@ def _requirement_list(args: argparse.Namespace) -> int:
         items = [
             doc for doc in items if needle in str(doc.data.get("text", "")).lower()
         ]
+    if args.root_only:
+        items = [doc for doc in items if doc.file_path.name == "root.json"]
 
     items = sorted(items, key=lambda doc: str(doc.data["ruid"]))
     if args.limit is not None:
@@ -918,6 +921,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Case-insensitive substring filter for requirement text.",
     )
     requirement_list_parser.add_argument(
+        "--root-only",
+        action="store_true",
+        help="Return only requirements loaded from files named root.json.",
+    )
+    requirement_list_parser.add_argument(
         "--limit",
         type=int,
         help="Maximum number of matching requirements to return.",
@@ -1042,11 +1050,6 @@ def build_parser() -> argparse.ArgumentParser:
             help="Path to requirements directory. Defaults to ./requirements.",
         )
         parser.add_argument(
-            "--rn",
-            required=True,
-            help="RN value for root requirement.",
-        )
-        parser.add_argument(
             "--rl",
             type=int,
             choices=[0, 1, 2, 3],
@@ -1106,13 +1109,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     create_root_parser = requirement_subparsers.add_parser(
         "create-root",
-        help="Create the initial root requirement in an empty requirements tree.",
+        help=(
+            "Create the initial root requirement in an empty requirements tree; "
+            "RN is auto-assigned from 0-9 then A-Z (first root RN is 0)."
+        ),
     )
     _add_root_create_arguments(create_root_parser)
 
     create_child_parser = requirement_subparsers.add_parser(
         "create-child",
-        help="Create a child requirement and infer the next available RN.",
+        help=(
+            "Create a child requirement; RN is inferred as the first unused "
+            "one-character extension in 0-9 then A-Z order."
+        ),
     )
     _add_create_arguments(
         create_child_parser,
@@ -1121,7 +1130,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     create_sibling_parser = requirement_subparsers.add_parser(
         "create-sibling",
-        help="Create a sibling requirement and infer the next available RN.",
+        help=(
+            "Create a sibling requirement; RN is inferred under the parent as the "
+            "first unused one-character extension in 0-9 then A-Z order."
+        ),
     )
     _add_create_arguments(
         create_sibling_parser,

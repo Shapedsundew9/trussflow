@@ -32,8 +32,5 @@ If a value is uncertain, prefer a best estimate with explicit rationale instead 
 
 1. Read {SOURCE_DOCUMENT_PATH}.
 2. Extract explicit needs, constraints, and exclusions.
-3. Build a requirement hierarchy from high-level goals to deeper levels only where justified.
-4. Assign RUIDs with immutable, unique RN values and valid RL/RS tokens.
-5. Write concise text and rationale for each requirement.
-6. Materialize the full JSON requirements tree into {REQUIREMENTS_PATH}.
-7. Validate the requirements with {REQUIREMENTS_VALIDATION_CMD}
+3. Build a requirement hierarchy from high-level to deeper levels only where justified.
+4. Write concise text and rationale for each requirement.

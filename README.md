@@ -54,6 +54,7 @@ Selectors can be RN (`AB`) or full RUID (`AB1c`).
 
 ```bash
 trussflow requirement get AB --json
+trussflow requirement list --root-only --json
 trussflow requirement list --parent A --json
 trussflow requirement list --parent A --include ruid,text --json
 trussflow requirement inspect AB --include parent,siblings,children,refs --json
@@ -61,9 +62,13 @@ trussflow requirement inspect AB --include parent,siblings,children,refs --json
 
 Mechanical requirement creation commands (dry-run by default):
 
+RN allocation is automatic. For each parent RN, the next value is the first unused
+one-character extension in this order: `0-9`, then `A-Z`. For the root in an empty
+tree, the first RN is `0`.
+
 ```bash
 trussflow requirement create-root \
- --rn A --rl 0 --rs p \
+ --rl 0 --rs p \
  --text "The product shall ..." \
  --rationale "..." \
  --scope in \
