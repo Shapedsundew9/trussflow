@@ -48,7 +48,7 @@ Return results in this order:
 1. Overall assessment in one sentence.
 2. Findings, ordered from highest severity to lowest.
 3. For each finding, include:
-   - the RUID or file location
+   - the ID or file location
    - the issue
    - the violated rule or guideline
    - a concise suggested fix

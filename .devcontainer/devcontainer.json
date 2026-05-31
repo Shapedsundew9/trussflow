@@ -2,9 +2,33 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
 	"name": "trussflow",
-	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"image": "mcr.microsoft.com/devcontainers/python:3-3.14-trixie",
+	"dockerComposeFile": [
+		"docker-compose.yml"
+	],
+	"service": "devcontainer",
+	"runServices": [
+		"devcontainer",
+		"memgraph",
+		"lab"
+	],
+	"shutdownAction": "stopCompose",
 	"workspaceFolder": "/workspaces/trussflow",
+	"forwardPorts": [
+		"lab:3000",
+		"memgraph:7444",
+		"memgraph:7687"
+	],
+	"portsAttributes": {
+		"lab:3000": {
+			"label": "Memgraph Lab"
+		},
+		"memgraph:7444": {
+			"label": "Memgraph HTTP"
+		},
+		"memgraph:7687": {
+			"label": "Memgraph Bolt"
+		}
+	},
 	"customizations": {
 		"vscode": {
 			"extensions": [
