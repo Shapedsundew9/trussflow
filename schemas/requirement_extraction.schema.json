@@ -1,0 +1,53 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Trussflow Requirement Extraction Output",
+    "description": "Schema for the JSON returned by the requirement seed-writer agent.",
+    "type": "object",
+    "required": [
+        "requirements"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "requirements": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "rationale",
+                    "type",
+                    "user_concern"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "NASA-style requirement statement using SHALL."
+                    },
+                    "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The intent or 'why' behind the requirement."
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "Product",
+                            "System",
+                            "Design",
+                            "Implementation"
+                        ]
+                    },
+                    "user_concern": {
+                        "type": "string",
+                        "enum": [
+                            "High",
+                            "Low"
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}

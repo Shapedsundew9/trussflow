@@ -1,0 +1,43 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Trussflow Work Package Generation Output",
+    "description": "Schema for the JSON returned by the work-packager agent.",
+    "type": "object",
+    "required": [
+        "work_packages"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "work_packages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "requirement_id",
+                    "summary",
+                    "scope"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "requirement_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "ID of the requirement this work package implements."
+                    },
+                    "summary": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Actionable task instructions."
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": [
+                            "Human",
+                            "AI_Autonomous"
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}

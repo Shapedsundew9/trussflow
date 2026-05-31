@@ -1,0 +1,68 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Trussflow Requirement Grading Output",
+    "description": "Schema for the JSON returned by the requirement analyst agent.",
+    "type": "object",
+    "required": [
+        "grades"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "grades": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "quality_score",
+                    "is_atomic",
+                    "is_verifiable"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "quality_score": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                    },
+                    "is_atomic": {
+                        "type": "boolean"
+                    },
+                    "is_verifiable": {
+                        "type": "boolean"
+                    },
+                    "findings": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "issue",
+                                "rule",
+                                "suggested_fix"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                                "issue": {
+                                    "type": "string"
+                                },
+                                "rule": {
+                                    "type": "string"
+                                },
+                                "suggested_fix": {
+                                    "type": "string"
+                                },
+                                "severity": {
+                                    "type": "string",
+                                    "enum": [
+                                        "low",
+                                        "medium",
+                                        "high"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

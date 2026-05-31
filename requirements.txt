@@ -1,2 +1,7 @@
 pytest
 prefect
+jsonschema>=4.22
+neo4j>=5.20
+python-dotenv>=1.0
+# Optional, only needed for the live Gemini provider:
+# google-genai>=0.3

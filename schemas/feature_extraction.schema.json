@@ -1,0 +1,35 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Trussflow Feature Extraction Output",
+    "description": "Schema for the JSON returned by the feature-extractor agent.",
+    "type": "object",
+    "required": [
+        "features"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "features": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "description"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Short human-readable feature summary."
+                    },
+                    "description": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Text describing the feature domain."
+                    }
+                }
+            }
+        }
+    }
+}

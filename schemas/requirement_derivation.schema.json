@@ -1,0 +1,53 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Trussflow Requirement Derivation Output",
+    "description": "Schema for the JSON returned by the decomposer agent when deriving child requirements from a parent requirement.",
+    "type": "object",
+    "required": [
+        "requirements"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "requirements": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "rationale",
+                    "type",
+                    "user_concern"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "NASA-style child requirement statement using SHALL."
+                    },
+                    "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Why this child requirement derives from the parent."
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "Product",
+                            "System",
+                            "Design",
+                            "Implementation"
+                        ]
+                    },
+                    "user_concern": {
+                        "type": "string",
+                        "enum": [
+                            "High",
+                            "Low"
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}
