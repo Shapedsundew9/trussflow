@@ -111,7 +111,7 @@ RETURN r.id, r.text, parent.id AS binding_parent_id;
 
 ```
 
-Your Python orchestration layer can pass this exact array of low-concern sub-nodes to an AI agent (like Google Gemini) , letting it generate design parameters autonomously without letting it alter the human-governed "High" concern root rules .
+Your Python orchestration layer can pass this exact array of low-concern sub-nodes to an AI agent (the GitHub Copilot CLI) , letting it generate design parameters autonomously without letting it alter the human-governed "High" concern root rules .
 
 ## C. Impact Analysis (Managing Historical Trails)
 

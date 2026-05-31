@@ -1,0 +1,43 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Trussflow Agent Status Envelope",
+    "description": "Mechanical status returned by the orchestration wrapper after an agent dispatch. Verified before a continue/repair/abort decision is made.",
+    "type": "object",
+    "required": [
+        "agent",
+        "schema",
+        "ok",
+        "item_count"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "agent": {
+            "type": "string",
+            "description": "Name of the agent that produced the result."
+        },
+        "schema": {
+            "type": "string",
+            "description": "Name of the JSON schema the agent payload was validated against."
+        },
+        "ok": {
+            "type": "boolean",
+            "description": "True when the agent payload parsed and validated successfully."
+        },
+        "item_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of primary items the agent produced (requirements, grades, etc.)."
+        },
+        "validated": {
+            "type": "boolean",
+            "description": "True when the payload passed JSON-schema validation."
+        },
+        "error": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "description": "Error message when ok is false; null otherwise."
+        }
+    }
+}

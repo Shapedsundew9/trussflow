@@ -34,6 +34,6 @@ Essential to the project is the ability to distribute the software freely; there
 
 * The system must be distributable as a Docker container utilizing a Debian Python base image.  
 * Development resources are centered on VS Code running on Ubuntu 24.04.  
-* Primary AI targeting will focus on GitHub Copilot and Google Gemini.
+* Primary AI targeting will focus on the GitHub Copilot CLI.
 * Memgraph as the requirements storage backend
 * Python 3.14 as the primary tool implementation language.

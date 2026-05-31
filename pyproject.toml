@@ -12,12 +12,10 @@ dependencies = [
 	"jsonschema>=4.22",
 	"neo4j>=5.20",
 	"python-dotenv>=1.0",
+	"prefect>=3",
 ]
 
 [project.optional-dependencies]
-gemini = [
-	"google-genai>=0.3",
-]
 dev = [
 	"pytest>=8.0",
 ]

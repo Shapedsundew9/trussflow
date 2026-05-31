@@ -17,7 +17,7 @@ from trussflow.agents.decomposer import DecomposerAgent
 from trussflow.agents.feature_extractor import FeatureExtractorAgent
 from trussflow.agents.seed_writer import SeedWriterAgent
 from trussflow.agents.work_packager import WorkPackagerAgent
-from trussflow.config import get_logger
+from trussflow.config import get_logger, get_settings
 from trussflow.llm.base import LLMProvider
 from trussflow.llm.factory import get_provider
 from trussflow.models import (
@@ -28,6 +28,8 @@ from trussflow.models import (
     UserConcern,
     Vision,
 )
+from trussflow.orchestration.runner import StepContext, StepResult
+from trussflow.orchestration.status import AgentStatus
 from trussflow.store.graph import GraphStore
 
 logger = get_logger("pipeline")
@@ -48,6 +50,31 @@ def _write_artifact(kind: str, data: object) -> Path:
     return path
 
 
+def _status(agent: str, schema: str, count: int) -> AgentStatus:
+    """Build the verified status envelope for a completed agent dispatch.
+
+    The agent has already validated its output against ``schema`` (raising
+    otherwise), so reaching here means the payload is well-formed.
+    """
+    return AgentStatus(
+        agent=agent, schema=schema, ok=True, item_count=count, validated=True
+    )
+
+
+def _run_step(agent: str, context: StepContext, dispatch) -> object:
+    """Run a step directly, or via the Prefect orchestration flow when enabled.
+
+    The offline/default path calls ``dispatch`` synchronously so behaviour and
+    return values are identical to the un-orchestrated pipeline.
+    """
+    if get_settings().orchestration_enabled:
+        from trussflow.orchestration.flows import run_agent_step
+
+        outcome = run_agent_step(agent, dict(context), dispatch)
+        return outcome.result.value
+    return dispatch(context).value
+
+
 def ingest_vision(
     source_path: str,
     store: GraphStore,
@@ -55,30 +82,44 @@ def ingest_vision(
     vision_id: str = "VIS-001",
 ) -> list[Requirement]:
     """Read a vision document, extract requirements, and persist the graph."""
-    provider = provider or get_provider()
+    provider = provider or get_provider(agent="seed_writer")
     text = Path(source_path).read_text(encoding="utf-8")
     vision = Vision(id=vision_id, text=text, source=source_path)
-
     agent = SeedWriterAgent(provider)
-    requirements = agent.run(source_path, text)
 
-    store.ensure_constraints()
-    store.upsert_vision(vision)
-    for requirement in requirements:
-        store.upsert_requirement(requirement)
-        store.link_child_of(requirement.id, vision.id)
+    def _dispatch(_ctx: StepContext) -> StepResult:
+        requirements = agent.run(source_path, text)
 
-    _write_artifact(
-        "ingest",
-        {
-            "source": source_path,
-            "vision_id": vision_id,
-            "provider": provider.name,
-            "requirements": [r.to_properties() for r in requirements],
-        },
-    )
-    logger.info("Ingested %d requirement(s) from %s", len(requirements), source_path)
-    return requirements
+        store.ensure_constraints()
+        store.upsert_vision(vision)
+        for requirement in requirements:
+            store.upsert_requirement(requirement)
+            store.link_child_of(requirement.id, vision.id)
+
+        artifact = _write_artifact(
+            "ingest",
+            {
+                "source": source_path,
+                "vision_id": vision_id,
+                "provider": provider.name,
+                "requirements": [r.to_properties() for r in requirements],
+            },
+        )
+        logger.info(
+            "Ingested %d requirement(s) from %s", len(requirements), source_path
+        )
+        return StepResult(
+            value=requirements,
+            status=_status("seed_writer", "requirement_extraction", len(requirements)),
+            artifacts=[str(artifact)],
+        )
+
+    context: StepContext = {
+        "source_path": source_path,
+        "source_text": text,
+        "store": store,
+    }
+    return _run_step("seed_writer", context, _dispatch)
 
 
 def grade_requirements(
@@ -86,7 +127,7 @@ def grade_requirements(
     provider: LLMProvider | None = None,
 ) -> int:
     """Grade every requirement in the graph and persist the scores."""
-    provider = provider or get_provider()
+    provider = provider or get_provider(agent="analyst")
     rows = store.list_requirements()
     requirements = [
         Requirement(
@@ -102,33 +143,42 @@ def grade_requirements(
         return 0
 
     agent = AnalystAgent(provider)
-    grades = agent.run(requirements)
-    for grade in grades:
-        store.set_grade(
-            grade.requirement_id,
-            grade.quality_score,
-            grade.is_atomic,
-            grade.is_verifiable,
+
+    def _dispatch(_ctx: StepContext) -> StepResult:
+        grades = agent.run(requirements)
+        for grade in grades:
+            store.set_grade(
+                grade.requirement_id,
+                grade.quality_score,
+                grade.is_atomic,
+                grade.is_verifiable,
+            )
+
+        artifact = _write_artifact(
+            "grade",
+            {
+                "provider": provider.name,
+                "grades": [
+                    {
+                        "id": g.requirement_id,
+                        "quality_score": g.quality_score,
+                        "is_atomic": g.is_atomic,
+                        "is_verifiable": g.is_verifiable,
+                        "findings": [vars(f) for f in g.findings],
+                    }
+                    for g in grades
+                ],
+            },
+        )
+        logger.info("Graded %d requirement(s)", len(grades))
+        return StepResult(
+            value=len(grades),
+            status=_status("analyst", "requirement_grading", len(grades)),
+            artifacts=[str(artifact)],
         )
 
-    _write_artifact(
-        "grade",
-        {
-            "provider": provider.name,
-            "grades": [
-                {
-                    "id": g.requirement_id,
-                    "quality_score": g.quality_score,
-                    "is_atomic": g.is_atomic,
-                    "is_verifiable": g.is_verifiable,
-                    "findings": [vars(f) for f in g.findings],
-                }
-                for g in grades
-            ],
-        },
-    )
-    logger.info("Graded %d requirement(s)", len(grades))
-    return len(grades)
+    context: StepContext = {"store": store}
+    return _run_step("analyst", context, _dispatch)
 
 
 def _row_to_requirement(row: dict) -> Requirement:
@@ -152,38 +202,52 @@ def decompose_features(
     Creates ``(Feature)-[:CHILD_OF]->(Vision)`` and re-parents each top-level
     requirement under its best-matching feature.
     """
-    provider = provider or get_provider()
+    provider = provider or get_provider(agent="feature_extractor")
     vision_rows = store.list_visions()
     if not vision_rows:
         logger.warning("No vision present; run 'ingest' first")
         return []
     vision = vision_rows[0]
 
-    features = FeatureExtractorAgent(provider).run(vision.get("text", ""))
-    if not features:
-        return []
+    def _dispatch(_ctx: StepContext) -> StepResult:
+        features = FeatureExtractorAgent(provider).run(vision.get("text", ""))
+        if not features:
+            return StepResult(
+                value=[],
+                status=_status("feature_extractor", "feature_extraction", 0),
+                artifacts=[],
+            )
 
-    store.ensure_constraints()
-    for feature in features:
-        store.upsert_feature(feature)
-        store.link_child_of(feature.id, vision["id"])
+        store.ensure_constraints()
+        for feature in features:
+            store.upsert_feature(feature)
+            store.link_child_of(feature.id, vision["id"])
 
-    requirements = [_row_to_requirement(r) for r in store.list_requirements()]
-    for requirement in requirements:
-        feature = _best_feature(requirement, features)
-        store.set_parent(requirement.id, feature.id)
+        requirements = [_row_to_requirement(r) for r in store.list_requirements()]
+        for requirement in requirements:
+            feature = _best_feature(requirement, features)
+            store.set_parent(requirement.id, feature.id)
 
-    _write_artifact(
-        "decompose",
-        {
-            "provider": provider.name,
-            "vision_id": vision["id"],
-            "features": [f.to_properties() for f in features],
-            "assignments": {r.id: _best_feature(r, features).id for r in requirements},
-        },
-    )
-    logger.info("Created %d feature(s) and grouped requirements", len(features))
-    return features
+        artifact = _write_artifact(
+            "decompose",
+            {
+                "provider": provider.name,
+                "vision_id": vision["id"],
+                "features": [f.to_properties() for f in features],
+                "assignments": {
+                    r.id: _best_feature(r, features).id for r in requirements
+                },
+            },
+        )
+        logger.info("Created %d feature(s) and grouped requirements", len(features))
+        return StepResult(
+            value=features,
+            status=_status("feature_extractor", "feature_extraction", len(features)),
+            artifacts=[str(artifact)],
+        )
+
+    context: StepContext = {"store": store}
+    return _run_step("feature_extractor", context, _dispatch)
 
 
 def generate_workpackages(
@@ -191,35 +255,43 @@ def generate_workpackages(
     provider: LLMProvider | None = None,
 ) -> int:
     """Generate one work package per requirement and link IMPLEMENTS edges."""
-    provider = provider or get_provider()
+    provider = provider or get_provider(agent="work_packager")
     requirements = [_row_to_requirement(r) for r in store.list_requirements()]
     if not requirements:
         logger.warning("No requirements to plan work packages for")
         return 0
 
-    pairs = WorkPackagerAgent(provider).run(requirements)
-    store.ensure_constraints()
-    for work_package, requirement_id in pairs:
-        store.upsert_workpackage(work_package)
-        store.link_implements(work_package.id, requirement_id)
+    def _dispatch(_ctx: StepContext) -> StepResult:
+        pairs = WorkPackagerAgent(provider).run(requirements)
+        store.ensure_constraints()
+        for work_package, requirement_id in pairs:
+            store.upsert_workpackage(work_package)
+            store.link_implements(work_package.id, requirement_id)
 
-    _write_artifact(
-        "workpackages",
-        {
-            "provider": provider.name,
-            "work_packages": [
-                {
-                    "id": wp.id,
-                    "summary": wp.summary,
-                    "scope": wp.scope.value,
-                    "implements": req_id,
-                }
-                for wp, req_id in pairs
-            ],
-        },
-    )
-    logger.info("Generated %d work package(s)", len(pairs))
-    return len(pairs)
+        artifact = _write_artifact(
+            "workpackages",
+            {
+                "provider": provider.name,
+                "work_packages": [
+                    {
+                        "id": wp.id,
+                        "summary": wp.summary,
+                        "scope": wp.scope.value,
+                        "implements": req_id,
+                    }
+                    for wp, req_id in pairs
+                ],
+            },
+        )
+        logger.info("Generated %d work package(s)", len(pairs))
+        return StepResult(
+            value=len(pairs),
+            status=_status("work_packager", "workpackage_generation", len(pairs)),
+            artifacts=[str(artifact)],
+        )
+
+    context: StepContext = {"store": store}
+    return _run_step("work_packager", context, _dispatch)
 
 
 def derive_requirements(
@@ -229,31 +301,41 @@ def derive_requirements(
     provider: LLMProvider | None = None,
 ) -> list[Requirement]:
     """Derive child requirements from a parent and link them via CHILD_OF."""
-    provider = provider or get_provider()
+    provider = provider or get_provider(agent="decomposer")
     rows = {r["id"]: r for r in store.list_requirements()}
     if parent_id not in rows:
         raise ValueError(f"Unknown requirement: {parent_id}")
     parent = _row_to_requirement(rows[parent_id])
 
-    start_index = store.max_requirement_index() + 1 - 100
-    children = DecomposerAgent(provider).run(parent, target_type, start_index)
+    def _dispatch(_ctx: StepContext) -> StepResult:
+        start_index = store.max_requirement_index() + 1 - 100
+        children = DecomposerAgent(provider).run(parent, target_type, start_index)
 
-    store.ensure_constraints()
-    for child in children:
-        store.upsert_requirement(child)
-        store.link_child_of(child.id, parent.id)
+        store.ensure_constraints()
+        for child in children:
+            store.upsert_requirement(child)
+            store.link_child_of(child.id, parent.id)
 
-    _write_artifact(
-        "derive",
-        {
-            "provider": provider.name,
-            "parent_id": parent_id,
-            "target_type": target_type.value,
-            "children": [c.to_properties() for c in children],
-        },
-    )
-    logger.info("Derived %d child requirement(s) from %s", len(children), parent_id)
-    return children
+        artifact = _write_artifact(
+            "derive",
+            {
+                "provider": provider.name,
+                "parent_id": parent_id,
+                "target_type": target_type.value,
+                "children": [c.to_properties() for c in children],
+            },
+        )
+        logger.info(
+            "Derived %d child requirement(s) from %s", len(children), parent_id
+        )
+        return StepResult(
+            value=children,
+            status=_status("decomposer", "requirement_derivation", len(children)),
+            artifacts=[str(artifact)],
+        )
+
+    context: StepContext = {"store": store, "parent_id": parent_id}
+    return _run_step("decomposer", context, _dispatch)
 
 
 def supersede_requirement(
@@ -268,30 +350,38 @@ def supersede_requirement(
         raise ValueError(f"Unknown requirement: {old_id}")
     old = _row_to_requirement(rows[old_id])
 
-    new_index = store.max_requirement_index() + 1 - 100
-    replacement = Requirement(
-        id=format_requirement_id(new_index),
-        text=new_text,
-        rationale=rationale,
-        type=old.type,
-        status=RequirementStatus.DEFINED,
-        user_concern=old.user_concern,
-    )
+    def _dispatch(_ctx: StepContext) -> StepResult:
+        new_index = store.max_requirement_index() + 1 - 100
+        replacement = Requirement(
+            id=format_requirement_id(new_index),
+            text=new_text,
+            rationale=rationale,
+            type=old.type,
+            status=RequirementStatus.DEFINED,
+            user_concern=old.user_concern,
+        )
 
-    store.supersede_requirement(old_id, replacement)
-    # Preserve the old requirement's place in the hierarchy.
-    for parent_id in store.parent_ids(old_id):
-        store.link_child_of(replacement.id, parent_id)
+        store.supersede_requirement(old_id, replacement)
+        # Preserve the old requirement's place in the hierarchy.
+        for parent_id in store.parent_ids(old_id):
+            store.link_child_of(replacement.id, parent_id)
 
-    _write_artifact(
-        "supersede",
-        {
-            "old_id": old_id,
-            "replacement": replacement.to_properties(),
-        },
-    )
-    logger.info("Superseded %s with %s", old_id, replacement.id)
-    return replacement
+        artifact = _write_artifact(
+            "supersede",
+            {
+                "old_id": old_id,
+                "replacement": replacement.to_properties(),
+            },
+        )
+        logger.info("Superseded %s with %s", old_id, replacement.id)
+        return StepResult(
+            value=replacement,
+            status=_status("supersede", "requirement_extraction", 1),
+            artifacts=[str(artifact)],
+        )
+
+    context: StepContext = {"store": store, "target_id": old_id}
+    return _run_step("supersede", context, _dispatch)
 
 
 def _best_feature(requirement: Requirement, features: list[Feature]) -> Feature:

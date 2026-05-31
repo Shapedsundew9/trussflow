@@ -7,7 +7,7 @@ Trussflow is a requirements definition tool that helps you build out a software 
 The prototype ingests an unstructured vision document, uses an AI agent to
 extract NASA-style requirements into a Memgraph knowledge graph, grades their
 quality, and runs structural gap analysis. It runs fully offline using a
-deterministic stub LLM, or against Google Gemini when configured.
+deterministic stub LLM, or against the GitHub Copilot CLI when configured.
 
 ```bash
 # Install (editable)
@@ -36,9 +36,11 @@ trussflow reset                        # delete all graph data (destructive)
 Settings are environment-driven (see [.env.example](.env.example)):
 
 - `MEMGRAPH_HOST` / `MEMGRAPH_PORT` — graph database connection.
-- `TRUSSFLOW_LLM_PROVIDER` — `stub` (offline, default) or `gemini`.
-- `GEMINI_API_KEY` / `TRUSSFLOW_GEMINI_MODEL` — required for the Gemini provider
-  (`pip install -e .[gemini]`).
+- `TRUSSFLOW_LLM_PROVIDER` — `stub` (offline, default) or `copilot`.
+- `TRUSSFLOW_COPILOT_*` — Copilot CLI options (binary, model, effort, autopilot,
+  session prefix, timeout, logging). Per-agent overrides are available via
+  `TRUSSFLOW_COPILOT_MODEL_<AGENT>` / `TRUSSFLOW_COPILOT_EFFORT_<AGENT>`. The
+  `copilot` CLI must be installed and authenticated (e.g. via `GH_TOKEN`).
 
 Visualize the graph in Memgraph Lab at <http://localhost:3000>. Raw agent
 input/output is written to `artifacts/` for transparency.
@@ -48,7 +50,7 @@ input/output is written to `artifacts/` for transparency.
 - `config` — environment settings and structured logging.
 - `models` — dataclasses mirroring the Memgraph node/edge schema.
 - `store/graph` — idempotent Bolt-protocol graph access and gap queries.
-- `llm` — pluggable provider protocol (`stub`, `gemini`) + factory.
+- `llm` — pluggable provider protocol (`stub`, `copilot`) + factory.
 - `prompts` — load `docs/prompts/*.md` with mechanical placeholder substitution.
 - `agents` — `seed_writer` (extraction), `analyst` (grading), `feature_extractor`,
   `work_packager`, and `decomposer` (multi-level derivation), all schema-validated.
